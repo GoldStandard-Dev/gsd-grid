@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "GSD Grid",
+    "slug": "gsd-grid",
+    "scheme": "gsdgrid",
+    "orientation": "portrait",
+
+    "icon": "./assets/brand/gsd-grid-icon.png",
+
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/brand/gsd-grid-icon.png",
+      "name": "GSD Grid",
+      "shortName": "GSD",
+      "themeColor": "#D4AF37",
+      "backgroundColor": "#F7F4ED"
+    },
+
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+
+    "ios": {
+      "supportsTablet": true
+    },
+
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/gsd-grid-icon.png",
+        "backgroundColor": "#F7F4ED"
+      }
+    },
+
+    "extra": {
+      "SUPABASE_URL": "https://oaolepdogdilmliyhdsr.supabase.co",
+      "SUPABASE_ANON_KEY": "sb_publishable_yOqB43xnVuScrKTHZGMtBQ_lNu-bQjY"
+    }
+  }
+}
