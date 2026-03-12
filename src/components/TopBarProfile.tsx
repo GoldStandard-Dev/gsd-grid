@@ -35,6 +35,19 @@ function getInitials(name?: string | null, email?: string | null) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
+function formatDisplayName(name?: string | null, email?: string | null) {
+  if (!name || !name.trim()) {
+    return email ?? "User";
+  }
+
+  const parts = name.trim().split(/\s+/);
+
+  const first = parts[0];
+  const lastInitial = parts.length > 1 ? `${parts[1][0]}.` : "";
+
+  return `${first} ${lastInitial}`.trim();
+}
+
 export default function TopBarProfile() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -91,11 +104,10 @@ export default function TopBarProfile() {
     router.replace("/(auth)/sign-in");
   }
 
-  const displayName = useMemo(() => {
-    if (profile.full_name?.trim()) return profile.full_name.trim();
-    if (profile.email?.trim()) return profile.email.trim();
-    return "User";
-  }, [profile.full_name, profile.email]);
+  const displayName = useMemo(
+    () => formatDisplayName(profile.full_name, profile.email),
+    [profile.full_name, profile.email]
+  );
 
   const initials = useMemo(
     () => getInitials(profile.full_name, profile.email),
