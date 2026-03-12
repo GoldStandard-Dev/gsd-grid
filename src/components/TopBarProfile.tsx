@@ -10,6 +10,7 @@ type UserProfile = {
   full_name?: string | null;
   avatar_url?: string | null;
   email?: string | null;
+  company_name?: string | null;
 };
 
 const PALETTE = {
@@ -40,10 +41,9 @@ function formatDisplayName(name?: string | null, email?: string | null) {
     return email ?? "User";
   }
 
-  const parts = name.trim().split(/\s+/);
-
-  const first = parts[0];
-  const lastInitial = parts.length > 1 ? `${parts[1][0]}.` : "";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? "";
+  const lastInitial = parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
 
   return `${first} ${lastInitial}`.trim();
 }
@@ -78,18 +78,20 @@ export default function TopBarProfile() {
           (user.user_metadata?.name as string | undefined) ??
           null,
         avatar_url: (user.user_metadata?.avatar_url as string | undefined) ?? null,
+        company_name: (user.user_metadata?.company_name as string | undefined) ?? null,
       };
 
       const { data: profileRow } = await supabase
         .from("profiles")
-        .select("full_name, avatar_url")
-        .eq("id", user.id)
+        .select("full_name, avatar_url, company_name")
+        .eq("user_id", user.id)
         .maybeSingle();
 
       setProfile({
         email: baseProfile.email,
         full_name: profileRow?.full_name ?? baseProfile.full_name ?? null,
         avatar_url: profileRow?.avatar_url ?? baseProfile.avatar_url ?? null,
+        company_name: profileRow?.company_name ?? baseProfile.company_name ?? null,
       });
     } catch {
       setProfile({});
@@ -108,6 +110,11 @@ export default function TopBarProfile() {
     () => formatDisplayName(profile.full_name, profile.email),
     [profile.full_name, profile.email]
   );
+
+  const subtitle = useMemo(() => {
+    if (profile.company_name?.trim()) return profile.company_name.trim();
+    return "Account";
+  }, [profile.company_name]);
 
   const initials = useMemo(
     () => getInitials(profile.full_name, profile.email),
@@ -134,7 +141,7 @@ export default function TopBarProfile() {
               {loading ? "Loading..." : displayName}
             </Text>
             <Text numberOfLines={1} style={styles.role}>
-              Account
+              {loading ? "Account" : subtitle}
             </Text>
           </View>
         </View>
@@ -160,6 +167,15 @@ export default function TopBarProfile() {
                 </Text>
                 <Text numberOfLines={1} style={styles.menuEmail}>
                   {profile.email ?? "No email"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.menuMetaCard}>
+              <View style={styles.menuMetaRow}>
+                <Ionicons name="business-outline" size={14} color={PALETTE.goldDark} />
+                <Text numberOfLines={1} style={styles.menuMetaText}>
+                  {subtitle}
                 </Text>
               </View>
             </View>
@@ -208,8 +224,8 @@ const styles = StyleSheet.create({
   trigger: {
     minWidth: 220,
     maxWidth: 320,
-    height: 48,
-    borderRadius: 14,
+    height: 52,
+    borderRadius: 16,
     paddingHorizontal: 12,
     backgroundColor: PALETTE.white,
     borderWidth: 1,
@@ -217,6 +233,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
 
   identityWrap: {
@@ -228,16 +248,16 @@ const styles = StyleSheet.create({
   },
 
   avatarImage: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: PALETTE.panel,
   },
 
   avatarFallback: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "#FFF5D6",
     borderWidth: 1,
     borderColor: PALETTE.border,
@@ -258,8 +278,8 @@ const styles = StyleSheet.create({
 
   name: {
     color: PALETTE.text,
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 13.5,
+    fontWeight: "900",
   },
 
   role: {
@@ -279,12 +299,16 @@ const styles = StyleSheet.create({
   },
 
   menu: {
-    width: 270,
-    borderRadius: 16,
+    width: 290,
+    borderRadius: 18,
     backgroundColor: PALETTE.white,
     borderWidth: 1,
     borderColor: PALETTE.border,
     padding: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
   },
 
   menuHeader: {
@@ -294,16 +318,16 @@ const styles = StyleSheet.create({
   },
 
   menuAvatarImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: PALETTE.panel,
   },
 
   menuAvatarFallback: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FFF5D6",
     borderWidth: 1,
     borderColor: PALETTE.border,
@@ -325,7 +349,7 @@ const styles = StyleSheet.create({
   menuName: {
     color: PALETTE.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "900",
   },
 
   menuEmail: {
@@ -333,6 +357,29 @@ const styles = StyleSheet.create({
     color: PALETTE.textMuted,
     fontSize: 12,
     fontWeight: "700",
+  },
+
+  menuMetaCard: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: PALETTE.border,
+    backgroundColor: "#FFFDF8",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+
+  menuMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  menuMetaText: {
+    flex: 1,
+    color: PALETTE.text,
+    fontSize: 12.5,
+    fontWeight: "800",
   },
 
   divider: {
