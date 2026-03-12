@@ -144,6 +144,25 @@ export default function Team() {
     setFormSuccess("");
   }
 
+  async function sendInviteEmail(email: string, inviteId: string) {
+    const origin =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "";
+
+    const invokeRes = await supabase.functions.invoke("send-invite", {
+      body: {
+        email,
+        invite_id: inviteId,
+        app_url: origin,
+      },
+    });
+
+    if (invokeRes.error) {
+      throw new Error(invokeRes.error.message);
+    }
+  }
+
   async function sendInvite() {
     if (saving) return;
 
@@ -209,9 +228,11 @@ export default function Team() {
         created_at: insertRes.data.created_at,
       };
 
+      await sendInviteEmail(newInvite.email, newInvite.id);
+
       setInvites((prev) => [newInvite, ...prev]);
-      setFormSuccess("Invite created.");
-      setPageMessage(`Invite created for ${email}.`);
+      setFormSuccess("Invite created and email sent.");
+      setPageMessage(`Invite email sent to ${email}.`);
 
       setTimeout(() => {
         setShowInviteModal(false);
@@ -463,7 +484,7 @@ export default function Team() {
                 </Pressable>
 
                 <Pressable onPress={sendInvite} style={[styles.inviteBtn, saving ? { opacity: 0.7 } : null]} disabled={saving}>
-                  <Text style={styles.inviteText}>{saving ? "Saving..." : "Create Invite"}</Text>
+                  <Text style={styles.inviteText}>{saving ? "Sending..." : "Send Invite"}</Text>
                 </Pressable>
               </View>
             </View>
@@ -658,7 +679,7 @@ const styles = StyleSheet.create({
   },
 
   emptyWrap: {
-    paddingVertical: 22,
+    paddingVertical: 20,
   },
 
   empty: {
@@ -676,7 +697,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
+    backgroundColor: "#fff1f2",
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -704,24 +725,20 @@ const styles = StyleSheet.create({
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(10,10,10,0.35)",
+    backgroundColor: "rgba(17,17,17,0.18)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    padding: 18,
   },
 
   modalCard: {
     width: "100%",
-    maxWidth: 640,
+    maxWidth: 720,
     backgroundColor: "#fff",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
   },
 
   modalTop: {
@@ -729,11 +746,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
 
   modalTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "900",
     color: theme.colors.ink,
   },
@@ -745,8 +762,8 @@ const styles = StyleSheet.create({
   },
 
   closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -762,10 +779,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: "#fff1f2",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
 
   formBannerErrorText: {
@@ -778,9 +795,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#bbf7d0",
     backgroundColor: "#f0fdf4",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
 
   formBannerSuccessText: {
@@ -789,7 +806,7 @@ const styles = StyleSheet.create({
   },
 
   formGrid: {
-    gap: 12,
+    gap: 14,
   },
 
   fieldColFull: {
@@ -797,32 +814,33 @@ const styles = StyleSheet.create({
   },
 
   fieldLabel: {
-    color: theme.colors.muted,
-    fontWeight: "900",
-    fontSize: 12,
     marginBottom: 6,
+    color: theme.colors.muted,
+    fontWeight: "800",
+    fontSize: 12,
   },
 
   input: {
-    height: 46,
+    minHeight: 46,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
+    fontWeight: "700",
     color: theme.colors.ink,
-    fontWeight: "800",
+    backgroundColor: "#fff",
   },
 
   roleRow: {
     flexDirection: "row",
-    gap: 8,
     flexWrap: "wrap",
+    gap: 8,
   },
 
   rolePill: {
-    minWidth: 88,
-    height: 38,
+    minHeight: 36,
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
@@ -833,18 +851,18 @@ const styles = StyleSheet.create({
   },
 
   rolePillActive: {
-    backgroundColor: "#faf7ef",
+    backgroundColor: "#F5E6B8",
     borderColor: theme.colors.gold,
   },
 
   rolePillText: {
     color: theme.colors.ink,
+    fontSize: 12,
     fontWeight: "800",
-    textTransform: "capitalize",
   },
 
   rolePillTextActive: {
-    color: theme.colors.ink,
+    color: theme.colors.goldDark,
   },
 
   modalActions: {
@@ -852,5 +870,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 10,
+    flexWrap: "wrap",
   },
 });

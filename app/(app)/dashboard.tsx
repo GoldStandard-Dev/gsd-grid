@@ -13,6 +13,8 @@ type ActivityDetails = {
   client_name?: string | null;
   clientName?: string | null;
   name?: string | null;
+  email?: string | null;
+  role?: string | null;
   status?: string | null;
   priority?: string | null;
   work_order_number?: number | null;
@@ -36,6 +38,7 @@ type DashboardCounts = {
   openWorkOrders: number;
   unpaidInvoices: number;
   clients: number;
+  teamMembers: number;
 };
 
 function StatCard({
@@ -89,43 +92,23 @@ function QuickAction({
   );
 }
 
+function normalizeAction(action: string) {
+  const value = (action ?? "").trim().toLowerCase();
+
+  if (!value) return "updated";
+  if (value.includes("create") || value.includes("added") || value.includes("insert")) return "created";
+  if (value.includes("delete") || value.includes("remove")) return "deleted";
+  if (value.includes("convert")) return "converted";
+  if (value.includes("invite")) return "invited";
+  if (value.includes("accept")) return "accepted";
+  if (value.includes("cancel")) return "cancelled";
+  if (value.includes("update") || value.includes("edit") || value.includes("modify")) return "updated";
+
+  return value;
+}
+
 function formatActionLabel(action: string) {
-  const normalized = (action ?? "").trim().toLowerCase();
-
-  if (
-    normalized.includes("update") ||
-    normalized.includes("edit") ||
-    normalized.includes("modified")
-  ) {
-    return "Updated";
-  }
-
-  if (
-    normalized.includes("create") ||
-    normalized.includes("added") ||
-    normalized.includes("insert")
-  ) {
-    return "Created";
-  }
-
-  if (normalized.includes("delete") || normalized.includes("removed")) {
-    return "Deleted";
-  }
-
-  if (normalized.includes("convert")) {
-    return "Converted";
-  }
-
-  if (normalized.includes("close")) {
-    return "Closed";
-  }
-
-  if (normalized.includes("open")) {
-    return "Opened";
-  }
-
-  if (!normalized) return "Updated";
-
+  const normalized = normalizeAction(action);
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
@@ -135,7 +118,7 @@ function formatEntityLabel(entityType: string) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function getActivitySubject(item: ActivityRow) {
+function buildActivitySubject(item: ActivityRow) {
   if (item.entity_type === "work_order") {
     const workOrderLabel = formatWorkOrderNumber(item.details?.work_order_number);
     const title = item.details?.title?.trim();
@@ -148,9 +131,7 @@ function getActivitySubject(item: ActivityRow) {
 
   if (item.entity_type === "invoice") {
     const invoiceLabel = formatInvoiceNumber(item.details?.invoice_number);
-    const client =
-      item.details?.client_name?.trim() ||
-      item.details?.clientName?.trim();
+    const client = item.details?.client_name?.trim() || item.details?.clientName?.trim();
 
     if (invoiceLabel !== "—" && client) return `Invoice ${invoiceLabel} • ${client}`;
     if (invoiceLabel !== "—") return `Invoice ${invoiceLabel}`;
@@ -168,40 +149,69 @@ function getActivitySubject(item: ActivityRow) {
     return "Client";
   }
 
+  if (item.entity_type === "org_invite") {
+    const email = item.details?.email?.trim() || item.details?.name?.trim();
+    const role = item.details?.role?.trim();
+
+    if (email && role) return `Invite • ${email} • ${role}`;
+    if (email) return `Invite • ${email}`;
+    return "Invite";
+  }
+
+  if (item.entity_type === "org_member") {
+    const name = item.details?.name?.trim() || item.details?.email?.trim();
+    const role = item.details?.role?.trim();
+
+    if (name && role) return `Team Member • ${name} • ${role}`;
+    if (name) return `Team Member • ${name}`;
+    return "Team Member";
+  }
+
   return formatEntityLabel(item.entity_type);
 }
 
 function buildActivityTitle(item: ActivityRow) {
-  return `${formatActionLabel(item.action)} • ${getActivitySubject(item)}`;
+  return `${formatActionLabel(item.action)} • ${buildActivitySubject(item)}`;
 }
 
 function buildActivityMeta(item: ActivityRow) {
   const actor = item.actor_name?.trim() || "Unknown user";
   const time = formatDateTime(item.created_at);
+  const action = normalizeAction(item.action);
 
-  let changes = "";
+  let changeText = "";
 
   if (item.details?.changed_fields?.length) {
-    changes = `Edited: ${item.details.changed_fields.join(", ")}`;
-  } else {
-    const action = (item.action ?? "").toLowerCase();
-    if (action.includes("create")) changes = "New record";
-    if (action.includes("delete")) changes = "Record removed";
+    changeText = `Edited: ${item.details.changed_fields.join(", ")}`;
+  } else if (action === "created") {
+    changeText = "New record";
+  } else if (action === "deleted") {
+    changeText = "Record removed";
+  } else if (action === "invited") {
+    changeText = item.details?.status ? `Status: ${item.details.status}` : "Invite sent";
+  } else if (action === "accepted") {
+    changeText = "Invite accepted";
+  } else if (action === "cancelled") {
+    changeText = "Invite cancelled";
   }
 
-  return [actor, time, changes].filter(Boolean).join(" • ");
+  return [actor, time, changeText].filter(Boolean).join(" • ");
 }
 
 function getActivityBadge(item: ActivityRow) {
   if (item.entity_type === "work_order") return "work order";
   if (item.entity_type === "invoice") return "invoice";
   if (item.entity_type === "client") return "client";
+  if (item.entity_type === "org_invite") return "invite";
+  if (item.entity_type === "org_member") return "team";
   return item.entity_type.replaceAll("_", " ");
 }
 
 function getActivityDotStyle(item: ActivityRow) {
   if (item.entity_type === "invoice") return styles.dotInvoice;
   if (item.entity_type === "client") return styles.dotClient;
+  if (item.entity_type === "org_invite") return styles.dotInvite;
+  if (item.entity_type === "org_member") return styles.dotTeam;
   return styles.dotWorkOrder;
 }
 
@@ -214,6 +224,7 @@ export default function Dashboard() {
     openWorkOrders: 0,
     unpaidInvoices: 0,
     clients: 0,
+    teamMembers: 0,
   });
 
   const stats = useMemo(() => {
@@ -221,6 +232,7 @@ export default function Dashboard() {
       { label: "Open Work Orders", value: String(counts.openWorkOrders), hint: "Jobs needing attention" },
       { label: "Invoices (Unpaid)", value: String(counts.unpaidInvoices), hint: "Pending collections" },
       { label: "Clients", value: String(counts.clients), hint: "Saved customer records" },
+      { label: "Team Members", value: String(counts.teamMembers), hint: "Active organization users" },
     ];
   }, [counts]);
 
@@ -260,10 +272,17 @@ export default function Dashboard() {
 
       const clientsRes = await supabase.from("clients").select("id").eq("org_id", orgId);
 
+      const membersRes = await supabase
+        .from("org_members")
+        .select("id, status")
+        .eq("org_id", orgId)
+        .eq("status", "active");
+
       setCounts({
         openWorkOrders: workOrdersRes.data?.length ?? 0,
         unpaidInvoices: invoicesRes.data?.length ?? 0,
         clients: clientsRes.data?.length ?? 0,
+        teamMembers: membersRes.data?.length ?? 0,
       });
     })();
   }, []);
@@ -281,6 +300,11 @@ export default function Dashboard() {
 
     if (item.entity_type === "client") {
       router.push("/clients");
+      return;
+    }
+
+    if (item.entity_type === "org_invite" || item.entity_type === "org_member") {
+      router.push("/team");
     }
   }
 
@@ -311,7 +335,9 @@ export default function Dashboard() {
                   ? () => router.push("/workorders")
                   : idx === 1
                     ? () => router.push("/invoices")
-                    : () => router.push("/clients")
+                    : idx === 2
+                      ? () => router.push("/clients")
+                      : () => router.push("/team")
               }
             />
           ))}
@@ -373,8 +399,8 @@ export default function Dashboard() {
 
             <View style={[ui.card, styles.infoCard]}>
               <Text style={styles.sideTitle}>Overview</Text>
-              <Text style={styles.overviewLine}>Keep work orders updated and convert completed jobs into invoices.</Text>
-              <Text style={styles.overviewLine}>Recent activity now shows who changed what and when for saved records.</Text>
+              <Text style={styles.overviewLine}>Track work orders, invoices, clients, and team activity in one place.</Text>
+              <Text style={styles.overviewLine}>Recent activity now supports work orders, invoices, clients, invites, and team events.</Text>
             </View>
           </View>
         </View>
@@ -411,7 +437,7 @@ const styles = StyleSheet.create({
 
   statCard: {
     flexGrow: 1,
-    minWidth: 240,
+    minWidth: 220,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
@@ -492,6 +518,14 @@ const styles = StyleSheet.create({
 
   dotClient: {
     backgroundColor: "#10B981",
+  },
+
+  dotInvite: {
+    backgroundColor: "#A855F7",
+  },
+
+  dotTeam: {
+    backgroundColor: "#F97316",
   },
 
   activityTextWrap: { flex: 1 },
