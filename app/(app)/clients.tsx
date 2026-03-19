@@ -322,8 +322,8 @@ export default function Clients() {
       <View style={[ui.container, styles.pagePad]}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={ui.h1}>Clients</Text>
-            <Text style={ui.sub}>Manage customer records and create work orders faster.</Text>
+            <Text style={styles.heroTitle}>Clients</Text>
+            <Text style={styles.heroSub}>Manage customer records and create work orders faster.</Text>
           </View>
 
           <Pressable style={styles.primaryBtn} onPress={openCreateModal}>
@@ -354,7 +354,7 @@ export default function Clients() {
             value={search}
             onChangeText={setSearch}
             placeholder="Search clients..."
-            placeholderTextColor="#8A8F98"
+            placeholderTextColor={MUTED_2}
             style={styles.search}
           />
         </View>
@@ -516,25 +516,49 @@ export default function Clients() {
   );
 }
 
+
+const PAGE_BG = "#f7f3ea";
+const CARD_BG = "#fffdf8";
+const BORDER = "#e4d6b2";
+const BORDER_SOFT = "#dcc89a";
+const GOLD = "#c9a227";
+const GOLD_BRIGHT = "#d4af37";
+const TEXT = "#111111";
+const MUTED = "#6f6a63";
+const MUTED_2 = "#7b746b";
+const DARK_CARD = "#111111";
+const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+
+
 const styles = StyleSheet.create({
-  pagePad: { padding: 22 },
+  pagePad: { padding: 24, backgroundColor: PAGE_BG, minHeight: "100%" },
 
   headerRow: {
+    marginBottom: 16,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 14,
     gap: 16,
     flexWrap: "wrap",
+    backgroundColor: DARK_CARD,
+    borderWidth: 1,
+    borderColor: DARK_BORDER,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
 
   primaryBtn: {
-    backgroundColor: theme.colors.gold,
+    backgroundColor: GOLD_BRIGHT,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.gold,
+    borderColor: GOLD,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -548,13 +572,29 @@ const styles = StyleSheet.create({
     color: "#111",
   },
 
+  heroTitle: {
+    fontSize: 36,
+    lineHeight: 40,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+
+  heroSub: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.76)",
+    maxWidth: 720,
+  },
+
   secondaryBtn: {
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -574,9 +614,9 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 220,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 16,
     padding: 16,
     shadowColor: "#000",
@@ -600,13 +640,13 @@ const styles = StyleSheet.create({
 
   searchWrap: {
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 14,
     paddingHorizontal: 12,
     height: 44,
     justifyContent: "center",
     marginBottom: 14,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
   },
 
   search: {
@@ -622,7 +662,7 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     paddingVertical: 12,
     paddingHorizontal: 16,
     backgroundColor: "#f6f6f6",
@@ -640,7 +680,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
   },
 
   trStriped: {
@@ -709,10 +749,10 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 720,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     padding: 18,
     shadowColor: "#000",
     shadowOpacity: 0.12,
@@ -745,8 +785,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#fff",
+    borderColor: BORDER,
+    backgroundColor: CARD_BG,
   },
 
   closeBtnText: {
@@ -810,9 +850,9 @@ const styles = StyleSheet.create({
   input: {
     height: 46,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     paddingHorizontal: 12,
     color: theme.colors.ink,
     fontWeight: "800",
@@ -828,9 +868,9 @@ const styles = StyleSheet.create({
   suggestionsBox: {
     marginTop: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 14,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     overflow: "hidden",
   },
 

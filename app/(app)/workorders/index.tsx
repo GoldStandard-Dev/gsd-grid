@@ -6,9 +6,9 @@ import Screen from "../../../src/components/Screen";
 import { getUserOrgId } from "../../../src/lib/auth";
 import { formatWorkOrderNumber } from "../../../src/lib/format";
 import { supabase } from "../../../src/lib/supabase";
-import { theme } from "../../../src/theme/theme";
 
 type WorkOrderStatus = "Open" | "Scheduled" | "In Progress" | "On Hold" | "Closed";
+type ReviewStatus = "draft" | "submitted_for_review" | "in_review" | "priced";
 
 type WorkOrderListItem = {
   id: string;
@@ -18,16 +18,65 @@ type WorkOrderListItem = {
   status: WorkOrderStatus;
   dueDate?: string;
   updatedAt?: string;
+  assignedUserId?: string;
+  assignedDisplayName?: string;
+  templateName?: string;
+  reviewStatus?: ReviewStatus;
 };
 
-const STATUS_FILTERS: Array<"All" | WorkOrderStatus> = [
+const STATUS_FILTERS: Array<"All" | WorkOrderStatus | "Needs Review" | "Priced"> = [
   "All",
   "Open",
   "Scheduled",
   "In Progress",
   "On Hold",
   "Closed",
+  "Needs Review",
+  "Priced",
 ];
+
+const REVIEW_ROLES = [
+  "owner",
+  "general_manager",
+  "operations_manager",
+  "project_manager",
+  "estimator",
+  "accounting_manager",
+  "office_admin",
+] as const;
+
+const PAGE_BG = "#f7f3ea";
+const CARD_BG = "#fffdf8";
+const CARD_WHITE = "#ffffff";
+const BORDER = "#e4d6b2";
+const BORDER_STRONG = "#dcc89a";
+const GOLD = "#c9a227";
+const GOLD_BRIGHT = "#d4af37";
+const GOLD_SOFT = "#f5e6b8";
+const TEXT = "#111111";
+const MUTED = "#6f6a63";
+const MUTED_2 = "#8b7a60";
+const HERO_BG = "#111111";
+
+function canCreateOrReview(role: string) {
+  return REVIEW_ROLES.includes(role as (typeof REVIEW_ROLES)[number]);
+}
+
+function safeJsonParse<T>(value?: string | null): T | null {
+  const text = (value ?? "").trim();
+  if (!text) return null;
+  if (!(text.startsWith("{") || text.startsWith("["))) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseMeta(description?: string | null) {
+  return safeJsonParse<any>(description) ?? {};
+}
 
 function formatDueDate(value?: string) {
   if (!value) return "—";
@@ -36,17 +85,52 @@ function formatDueDate(value?: string) {
   return date.toLocaleDateString();
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  subtitle,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+}) {
   return (
     <View style={styles.statCard}>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statSubtitle}>{subtitle}</Text>
     </View>
   );
 }
 
-function statusChipStyle(status: WorkOrderStatus) {
-  switch (status) {
+function QuickAction({
+  label,
+  onPress,
+  primary,
+}: {
+  label: string;
+  onPress?: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickAction,
+        primary ? styles.quickActionPrimary : null,
+        pressed ? styles.pressed : null,
+      ]}
+    >
+      <Text style={[styles.quickActionText, primary ? styles.quickActionTextPrimary : null]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function statusChipStyle(label: string) {
+  if (label === "Priced") return styles.statusClosed;
+  if (label === "Needs Review") return styles.statusScheduled;
+
+  switch (label) {
     case "Open":
       return styles.statusOpen;
     case "Scheduled":
@@ -69,7 +153,10 @@ export default function WorkOrdersIndex() {
   const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>("All");
   const [items, setItems] = useState<WorkOrderListItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [templateFilter, setTemplateFilter] = useState("All Templates");
   const [orgId, setOrgId] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState("viewer");
 
   useEffect(() => {
     void loadWorkOrders();
@@ -82,40 +169,69 @@ export default function WorkOrdersIndex() {
 
     const userId = auth.user?.id;
     if (!userId) throw new Error("No authenticated user found.");
+    setCurrentUserId(userId);
 
     const resolved = await getUserOrgId(userId);
     if (!resolved) throw new Error("Could not determine the active organization.");
 
     setOrgId(resolved);
-    return resolved;
+    return { orgId: resolved, userId };
   }
 
   async function loadWorkOrders() {
     setLoading(true);
 
     try {
-      const activeOrgId = orgId || (await resolveOrgId());
+      const resolved = await resolveOrgId();
+      const activeOrgId = orgId || resolved.orgId;
+      const userId = resolved.userId;
+
+      const memberRes = await supabase
+        .from("org_members")
+        .select("role")
+        .eq("org_id", activeOrgId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (memberRes.error) throw new Error(memberRes.error.message);
+
+      const role = String(memberRes.data?.role ?? "viewer");
+      setCurrentUserRole(role);
 
       const response = await supabase
         .from("work_orders")
-        .select("id, work_order_number, title, client_name, status, due_date, updated_at")
+        .select("id, work_order_number, title, client_name, status, due_date, updated_at, description")
         .eq("org_id", activeOrgId)
         .order("work_order_number", { ascending: false })
         .limit(200);
 
       if (response.error) throw new Error(response.error.message);
 
-      const mapped: WorkOrderListItem[] = (response.data ?? []).map((row: any) => ({
-        id: row.id,
-        workOrderNumber: row.work_order_number ?? null,
-        title: row.title ?? "Work Order",
-        clientName: row.client_name ?? "—",
-        status: (row.status ?? "Open") as WorkOrderStatus,
-        dueDate: row.due_date ?? undefined,
-        updatedAt: row.updated_at ?? undefined,
-      }));
+      const mapped: WorkOrderListItem[] = (response.data ?? []).map((row: any) => {
+        const meta = parseMeta(row.description);
+        return {
+          id: row.id,
+          workOrderNumber: row.work_order_number ?? null,
+          title: row.title ?? "Work Order",
+          clientName: row.client_name ?? "—",
+          status: (row.status ?? "Open") as WorkOrderStatus,
+          dueDate: row.due_date ?? undefined,
+          updatedAt: row.updated_at ?? undefined,
+          assignedUserId: meta.assignedTo?.userId ?? undefined,
+          assignedDisplayName: meta.assignedTo?.displayName ?? undefined,
+          templateName: meta.selectedTemplateLabel ?? meta.selectedTemplateName ?? "General",
+          reviewStatus: meta.reviewWorkflow?.status ?? "draft",
+        };
+      });
 
-      setItems(mapped);
+      const visibleItems = canCreateOrReview(role)
+        ? mapped
+        : mapped.filter((item) => item.assignedUserId === userId);
+
+      setItems(visibleItems);
+    } catch (error: any) {
+      console.warn("Load work orders failed", error?.message ?? error);
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -125,274 +241,561 @@ export default function WorkOrdersIndex() {
     const normalizedQuery = query.trim().toLowerCase();
 
     return items
-      .filter((item) => (status === "All" ? true : item.status === status))
       .filter((item) => {
+        if (status === "All") return true;
+        if (status === "Needs Review") {
+          return item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review";
+        }
+        if (status === "Priced") {
+          return item.reviewStatus === "priced";
+        }
+        return item.status === status;
+      })
+      .filter((item) => {
+        if (templateFilter !== "All Templates" && (item.templateName ?? "General") !== templateFilter) {
+          return false;
+        }
+
         if (!normalizedQuery) return true;
 
         return (
           item.title.toLowerCase().includes(normalizedQuery) ||
           item.clientName.toLowerCase().includes(normalizedQuery) ||
           String(item.workOrderNumber ?? "").includes(normalizedQuery) ||
+          item.assignedDisplayName?.toLowerCase().includes(normalizedQuery) ||
+          item.templateName?.toLowerCase().includes(normalizedQuery) ||
           item.id.toLowerCase().includes(normalizedQuery)
         );
       });
-  }, [items, query, status]);
+  }, [items, query, status, templateFilter]);
 
   const totalCount = items.length;
-
   const openCount = useMemo(
-    () =>
-      items.filter((item) =>
-        ["Open", "Scheduled", "In Progress", "On Hold"].includes(item.status)
-      ).length,
+    () => items.filter((item) => ["Open", "Scheduled", "In Progress", "On Hold"].includes(item.status)).length,
     [items]
   );
+  const needsReviewCount = useMemo(
+    () => items.filter((item) => item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review").length,
+    [items]
+  );
+  const closedCount = useMemo(() => items.filter((item) => item.status === "Closed").length, [items]);
 
-  const scheduledCount = useMemo(
-    () => items.filter((item) => item.status === "Scheduled").length,
-    [items]
-  );
-
-  const closedCount = useMemo(
-    () => items.filter((item) => item.status === "Closed").length,
-    [items]
-  );
+  const templateFilters = useMemo(() => {
+    const values = Array.from(new Set(items.map((item) => item.templateName || "General"))).sort((a, b) => a.localeCompare(b));
+    return ["All Templates", ...values];
+  }, [items]);
 
   return (
     <Screen padded={false}>
-      <View style={styles.page}>
-        <View style={styles.heroCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.heroTitle}>Work Orders</Text>
-            <Text style={styles.heroSub}>
-              Manage jobs, track status, and open each work order to edit the full grid.
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={() => router.push("/workorders/new")}
-            style={({ pressed }) => [styles.primaryBtn, pressed ? styles.pressed : null]}
-          >
-            <Ionicons name="add" size={16} color="#111111" />
-            <Text style={styles.primaryBtnText}>New Work Order</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.statsRow}>
-          <StatCard label="Total" value={String(totalCount)} />
-          <StatCard label="Open" value={String(openCount)} />
-          <StatCard label="Scheduled" value={String(scheduledCount)} />
-          <StatCard label="Closed" value={String(closedCount)} />
-        </View>
-
-        <View style={styles.controlsCard}>
-          <View style={styles.searchWrap}>
-            <Ionicons name="search" size={16} color={theme.colors.mutedSoft} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search title, client, or work order ID..."
-              placeholderTextColor={theme.colors.muted}
-              style={styles.search}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-            {STATUS_FILTERS.map((value) => {
-              const active = value === status;
-
-              return (
-                <Pressable
-                  key={value}
-                  onPress={() => setStatus(value)}
-                  style={({ pressed }) => [
-                    styles.filterPill,
-                    active ? styles.filterPillActive : null,
-                    pressed ? styles.pressed : null,
-                  ]}
-                >
-                  <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>
-                    {value}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <View style={styles.tableCard}>
-          <View style={styles.cardHeader}>
-            <View>
-              <Text style={styles.cardTitle}>Recent work orders</Text>
-              <Text style={styles.cardSubtitle}>Simple spreadsheet-style job list</Text>
-            </View>
-
-            <Text style={styles.cardMeta}>{loading ? "Loading..." : `${filtered.length} shown`}</Text>
-          </View>
-
-          {loading ? (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.empty}>Loading work orders...</Text>
-            </View>
-          ) : filtered.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.empty}>No work orders yet.</Text>
-              <Text style={styles.emptySub}>
-                Create your first work order to start using the system.
+      <ScrollView contentContainerStyle={styles.pagePad} showsVerticalScrollIndicator={false}>
+        <View style={styles.pageInner}>
+          <View style={styles.hero}>
+            <View style={styles.heroCopy}>
+              <Text style={styles.heroEyebrow}>Workflow</Text>
+              <Text style={styles.heroTitle}>Field-ready work order pipeline</Text>
+              <Text style={styles.heroSubtitle}>
+                {canCreateOrReview(currentUserRole)
+                  ? "Create, assign, review, and price jobs in the same black-and-gold workflow used across the dashboard."
+                  : "View your assigned work orders, complete the template, and send finished jobs in for review."}
               </Text>
-            </View>
-          ) : (
-            <View style={styles.table}>
-              <View style={styles.tableHead}>
-                <Text style={[styles.th, styles.colId]}>Work Order</Text>
-                <Text style={[styles.th, styles.colTitle]}>Title</Text>
-                <Text style={[styles.th, styles.colClient]}>Client</Text>
-                <Text style={[styles.th, styles.colStatus]}>Status</Text>
-                <Text style={[styles.th, styles.colDue]}>Due</Text>
+
+              <View style={styles.headerActions}>
+                <QuickAction label="Refresh" onPress={() => void loadWorkOrders()} />
+                {canCreateOrReview(currentUserRole) ? (
+                  <QuickAction label="New Work Order" primary onPress={() => router.push("/workorders/new")} />
+                ) : null}
               </View>
 
-              {filtered.map((item, index) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
-                  style={({ pressed }) => [
-                    styles.tr,
-                    index % 2 === 0 ? styles.trStriped : null,
-                    pressed ? styles.trPressed : null,
-                  ]}
-                >
-                  <Text style={[styles.td, styles.colId]} numberOfLines={1}>
-                    {formatWorkOrderNumber(item.workOrderNumber)}
-                  </Text>
+              <View style={styles.heroPills}>
+                <View style={styles.heroPill}>
+                  <Text style={styles.heroPillText}>{totalCount} total</Text>
+                </View>
+                <View style={styles.heroPill}>
+                  <Text style={styles.heroPillText}>{needsReviewCount} needing review</Text>
+                </View>
+              </View>
+            </View>
 
-                  <Text style={[styles.td, styles.colTitle]} numberOfLines={1}>
-                    {item.title}
-                  </Text>
+            <View style={styles.heroPanel}>
+              <Text style={styles.heroPanelLabel}>Current view</Text>
+              <Text style={styles.heroPanelValue}>
+                {canCreateOrReview(currentUserRole) ? "Manager / owner workflow" : "Assigned technician view"}
+              </Text>
+              <Text style={styles.heroPanelText}>
+                {canCreateOrReview(currentUserRole)
+                  ? "You can create, assign, review, and price work orders."
+                  : "You only see work orders assigned to your account."}
+              </Text>
+            </View>
+          </View>
 
-                  <Text style={[styles.td, styles.colClient]} numberOfLines={1}>
-                    {item.clientName}
-                  </Text>
+          <View style={styles.statsRow}>
+            <StatCard label="Total Work Orders" value={String(totalCount)} subtitle="All visible records" />
+            <StatCard label="Open Pipeline" value={String(openCount)} subtitle="Open, scheduled, active, on hold" />
+            <StatCard label="Needs Review" value={String(needsReviewCount)} subtitle="Submitted or under review" />
+            <StatCard label="Closed" value={String(closedCount)} subtitle="Completed work orders" />
+          </View>
 
-                  <View style={[styles.statusChip, styles.colStatus, statusChipStyle(item.status)]}>
-                    <Text style={styles.statusText}>{item.status}</Text>
+          <View style={styles.controlsCard}>
+            <View style={styles.controlsTop}>
+              <View style={styles.controlsCopy}>
+                <Text style={styles.cardEyebrow}>Filters</Text>
+                <Text style={styles.cardTitle}>Search and narrow results</Text>
+                <Text style={styles.cardSubtitle}>Find by work order, client, template, assignee, or stage.</Text>
+              </View>
+
+              <Text style={styles.cardMeta}>{loading ? "Loading..." : `${filtered.length} shown`}</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.searchWrap}>
+              <Ionicons name="search" size={16} color={MUTED_2} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search title, client, template, or assignee..."
+                placeholderTextColor={MUTED}
+                style={styles.search}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+              {STATUS_FILTERS.map((value) => {
+                const active = value === status;
+
+                return (
+                  <Pressable
+                    key={value}
+                    onPress={() => setStatus(value)}
+                    style={({ pressed }) => [
+                      styles.filterPill,
+                      active ? styles.filterPillActive : null,
+                      pressed ? styles.pressed : null,
+                    ]}
+                  >
+                    <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.templateFilterBlock}>
+              <Text style={styles.templateFilterLabel}>Template</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+                {templateFilters.map((value) => {
+                  const active = value === templateFilter;
+
+                  return (
+                    <Pressable
+                      key={value}
+                      onPress={() => setTemplateFilter(value)}
+                      style={({ pressed }) => [
+                        styles.filterPill,
+                        active ? styles.filterPillActive : null,
+                        pressed ? styles.pressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+
+          <View style={styles.tableCard}>
+            <View style={styles.tableHeaderTop}>
+              <View>
+                <Text style={styles.cardEyebrow}>Records</Text>
+                <Text style={styles.cardTitle}>Recent work orders</Text>
+                <Text style={styles.cardSubtitle}>Assignment-aware workflow list</Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            {loading ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.empty}>Loading work orders...</Text>
+              </View>
+            ) : filtered.length === 0 ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.empty}>No work orders found.</Text>
+                <Text style={styles.emptySub}>
+                  {canCreateOrReview(currentUserRole)
+                    ? "Create a work order and build the template before assigning it to a technician."
+                    : "You do not have any assigned work orders yet."}
+                </Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.table}>
+                  <View style={styles.tableHead}>
+                    <Text style={[styles.th, styles.colId]}>Work Order</Text>
+                    <Text style={[styles.th, styles.colTitle]}>Title</Text>
+                    <Text style={[styles.th, styles.colClient]}>Client</Text>
+                    <Text style={[styles.th, styles.colTemplate]}>Template</Text>
+                    <Text style={[styles.th, styles.colAssigned]}>Assigned</Text>
+                    <Text style={[styles.th, styles.colStatus]}>Stage</Text>
+                    <Text style={[styles.th, styles.colDue]}>Due</Text>
                   </View>
 
-                  <Text style={[styles.td, styles.colDue]}>{formatDueDate(item.dueDate)}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
+                  {filtered.map((item, index) => {
+                    const stageLabel =
+                      item.reviewStatus === "priced"
+                        ? "Priced"
+                        : item.reviewStatus === "in_review"
+                        ? "In Review"
+                        : item.reviewStatus === "submitted_for_review"
+                        ? "Needs Review"
+                        : item.status;
+
+                    return (
+                      <Pressable
+                        key={item.id}
+                        onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
+                        style={({ pressed }) => [
+                          styles.tr,
+                          index % 2 === 0 ? styles.trStriped : null,
+                          pressed ? styles.trPressed : null,
+                        ]}
+                      >
+                        <Text style={[styles.td, styles.colId]} numberOfLines={1}>
+                          {formatWorkOrderNumber(item.workOrderNumber)}
+                        </Text>
+
+                        <Text style={[styles.td, styles.colTitle]} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+
+                        <Text style={[styles.td, styles.colClient]} numberOfLines={1}>
+                          {item.clientName}
+                        </Text>
+
+                        <Text style={[styles.td, styles.colTemplate]} numberOfLines={1}>
+                          {item.templateName || "General"}
+                        </Text>
+
+                        <Text style={[styles.td, styles.colAssigned]} numberOfLines={1}>
+                          {item.assignedDisplayName || "Unassigned"}
+                        </Text>
+
+                        <View style={[styles.statusChip, styles.colStatus, statusChipStyle(stageLabel)]}>
+                          <Text style={styles.statusText}>{stageLabel}</Text>
+                        </View>
+
+                        <Text style={[styles.td, styles.colDue]}>{formatDueDate(item.dueDate)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            )}
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    backgroundColor: "#FAF7F0",
-    padding: 22,
-    gap: 14,
+  pagePad: {
+    flexGrow: 1,
+    backgroundColor: PAGE_BG,
+    padding: 24,
   },
 
-  heroCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8DFC7",
-    borderRadius: 22,
-    padding: 20,
+  pageInner: {
+    width: "100%",
+    maxWidth: 1400,
+    alignSelf: "center",
+    gap: 16,
+  },
+
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    gap: 16,
+    alignItems: "flex-start",
+    gap: 14,
     flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
   },
 
-  heroTitle: {
-    fontSize: 30,
+  headerCopy: {
+    flex: 1,
+    minWidth: 280,
+    gap: 4,
+  },
+
+  pageTitle: {
+    color: TEXT,
+    fontSize: 34,
+    lineHeight: 38,
     fontWeight: "900",
-    color: "#111111",
   },
 
-  heroSub: {
-    marginTop: 6,
+  pageSub: {
+    color: MUTED,
     fontSize: 14,
+    lineHeight: 21,
     fontWeight: "700",
-    color: "#6B6B6B",
   },
 
-  primaryBtn: {
+  headerActions: {
     flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: 8,
-    minHeight: 46,
-    paddingHorizontal: 16,
+    marginTop: 18,
+  },
+
+  quickAction: {
+    minHeight: 44,
+    paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#B8962E",
-    backgroundColor: "#D4AF37",
+    borderColor: BORDER,
+    backgroundColor: CARD_WHITE,
+    alignItems: "center",
     justifyContent: "center",
   },
 
-  primaryBtnText: {
-    color: "#111111",
+  quickActionPrimary: {
+    backgroundColor: GOLD_BRIGHT,
+    borderColor: GOLD,
+    shadowColor: "#c9a227",
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+
+  quickActionText: {
+    color: TEXT,
+    fontSize: 13,
     fontWeight: "900",
+  },
+
+  quickActionTextPrimary: {
+    color: TEXT,
+  },
+
+  hero: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: BORDER_STRONG,
+    backgroundColor: HERO_BG,
+    padding: 24,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+
+  heroCopy: {
+    flex: 1,
+    minWidth: 280,
+  },
+
+  heroEyebrow: {
+    color: GOLD_BRIGHT,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 1.1,
+    marginBottom: 10,
+  },
+
+  heroTitle: {
+    color: "#ffffff",
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: "900",
+  },
+
+  heroSubtitle: {
+    marginTop: 10,
+    color: "rgba(255,255,255,0.76)",
     fontSize: 14,
+    lineHeight: 22,
+    fontWeight: "700",
+    maxWidth: 760,
+  },
+
+  heroPills: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 18,
+  },
+
+  heroPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  heroPillText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  heroPanel: {
+    width: 320,
+    minWidth: 260,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: 18,
+    justifyContent: "center",
+  },
+
+  heroPanelLabel: {
+    color: GOLD_BRIGHT,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 1.1,
+    marginBottom: 8,
+  },
+
+  heroPanelValue: {
+    color: "#ffffff",
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: "900",
+  },
+
+  heroPanelText: {
+    marginTop: 10,
+    color: "rgba(255,255,255,0.76)",
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
   },
 
   statsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 12,
+    flexWrap: "wrap",
   },
 
   statCard: {
-    flexGrow: 1,
-    minWidth: 180,
-    backgroundColor: "#FFFFFF",
+    minWidth: 220,
+    flex: 1,
+    backgroundColor: CARD_WHITE,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
+    borderColor: BORDER,
     borderRadius: 18,
-    padding: 16,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
 
   statLabel: {
+    color: MUTED_2,
     fontSize: 12,
-    fontWeight: "800",
-    color: "#8B7A60",
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
   },
 
   statValue: {
     marginTop: 8,
-    fontSize: 24,
+    color: TEXT,
+    fontSize: 30,
+    lineHeight: 34,
     fontWeight: "900",
-    color: "#B8962E",
+  },
+
+  statSubtitle: {
+    marginTop: 6,
+    color: MUTED,
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: "700",
   },
 
   controlsCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
-    borderRadius: 20,
-    padding: 14,
+    borderColor: BORDER,
+    borderRadius: 22,
+    padding: 18,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+
+  controlsTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 12,
+    flexWrap: "wrap",
+  },
+
+  controlsCopy: {
+    flex: 1,
+    minWidth: 240,
+  },
+
+  cardEyebrow: {
+    color: GOLD,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 1.1,
+  },
+
+  cardTitle: {
+    marginTop: 6,
+    color: TEXT,
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "900",
+  },
+
+  cardSubtitle: {
+    marginTop: 4,
+    color: MUTED,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+
+  cardMeta: {
+    color: MUTED_2,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "#efe4c8",
   },
 
   searchWrap: {
-    height: 48,
+    minHeight: 48,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
+    borderColor: BORDER,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    backgroundColor: "#fffaf0",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -400,198 +803,214 @@ const styles = StyleSheet.create({
 
   search: {
     flex: 1,
-    color: "#111111",
-    fontSize: 14,
+    color: TEXT,
     fontWeight: "700",
+    fontSize: 14,
   },
 
   pillRow: {
     gap: 8,
-    paddingHorizontal: 2,
+  },
+
+  templateFilterBlock: {
+    gap: 8,
+  },
+
+  templateFilterLabel: {
+    color: MUTED_2,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
   },
 
   filterPill: {
-    minHeight: 38,
+    minHeight: 40,
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
+    borderColor: BORDER,
+    backgroundColor: CARD_WHITE,
     justifyContent: "center",
   },
 
   filterPillActive: {
-    backgroundColor: "#F5E6B8",
-    borderColor: "#D4AF37",
+    backgroundColor: GOLD_SOFT,
+    borderColor: GOLD,
   },
 
   filterPillText: {
-    color: "#111111",
-    fontWeight: "800",
+    color: TEXT,
+    fontWeight: "900",
     fontSize: 12.5,
   },
 
   filterPillTextActive: {
-    color: "#B8962E",
+    color: "#8a6a12",
   },
 
   tableCard: {
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_WHITE,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
+    borderColor: BORDER,
     borderRadius: 22,
-  },
-
-  cardHeader: {
     padding: 18,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+
+  tableHeaderTop: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 12,
-  },
-
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111111",
-  },
-
-  cardSubtitle: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6B6B6B",
-  },
-
-  cardMeta: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6B6B6B",
-  },
-
-  table: {
-    borderTopWidth: 1,
-    borderTopColor: "#E8DFC7",
-  },
-
-  tableHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#FBF6EA",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E8DFC7",
-  },
-
-  th: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#8B7A60",
-  },
-
-  tr: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1E7D2",
-    backgroundColor: "#FFFFFF",
-  },
-
-  trStriped: {
-    backgroundColor: "#FFFDF8",
-  },
-
-  trPressed: {
-    backgroundColor: "#F8F1E0",
-  },
-
-  td: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#111111",
-  },
-
-  colId: {
-    width: 140,
-  },
-
-  colTitle: {
-    flex: 1,
-  },
-
-  colClient: {
-    width: 220,
-  },
-
-  colStatus: {
-    width: 160,
-  },
-
-  colDue: {
-    width: 140,
-  },
-
-  statusChip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  statusText: {
-    fontSize: 12.5,
-    fontWeight: "900",
-    color: "#111111",
-  },
-
-  statusOpen: {
-    backgroundColor: "rgba(212,175,55,0.14)",
-    borderColor: "rgba(212,175,55,0.30)",
-  },
-
-  statusScheduled: {
-    backgroundColor: "rgba(241,211,122,0.18)",
-    borderColor: "rgba(212,175,55,0.28)",
-  },
-
-  statusInProgress: {
-    backgroundColor: "rgba(184,150,46,0.14)",
-    borderColor: "rgba(184,150,46,0.28)",
-  },
-
-  statusOnHold: {
-    backgroundColor: "rgba(110,98,74,0.10)",
-    borderColor: "rgba(110,98,74,0.20)",
-  },
-
-  statusClosed: {
-    backgroundColor: "rgba(17,17,17,0.06)",
-    borderColor: "rgba(17,17,17,0.12)",
+    flexWrap: "wrap",
   },
 
   emptyWrap: {
-    paddingHorizontal: 18,
-    paddingBottom: 20,
+    minHeight: 220,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 12,
   },
 
   empty: {
-    color: "#111111",
-    fontWeight: "800",
+    color: TEXT,
+    fontWeight: "900",
+    fontSize: 18,
   },
 
   emptySub: {
-    marginTop: 6,
-    color: "#6B6B6B",
+    color: MUTED,
     fontWeight: "700",
+    fontSize: 13,
+    textAlign: "center",
+    maxWidth: 520,
+  },
+
+  table: {
+    overflow: "hidden",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD_WHITE,
+    minWidth: 980,
+  },
+
+  tableHead: {
+    minHeight: 48,
+    backgroundColor: CARD_BG,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  th: {
+    color: MUTED_2,
+    fontWeight: "900",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  tr: {
+    minHeight: 56,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#f3ead3",
+  },
+
+  trStriped: {
+    backgroundColor: "#fffcf6",
+  },
+
+  trPressed: {
+    opacity: 0.92,
+  },
+
+  td: {
+    color: TEXT,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  colId: {
+    width: 120,
+  },
+
+  colTitle: {
+    flex: 1.35,
+  },
+
+  colClient: {
+    flex: 1.1,
+  },
+
+  colTemplate: {
+    width: 125,
+  },
+
+  colAssigned: {
+    width: 150,
+  },
+
+  colStatus: {
+    width: 128,
+  },
+
+  colDue: {
+    width: 110,
+    textAlign: "right",
+  },
+
+  statusChip: {
+    minHeight: 32,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+
+  statusOpen: {
+    backgroundColor: "#fff4d6",
+    borderColor: "#ecd189",
+  },
+
+  statusScheduled: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#bfdbfe",
+  },
+
+  statusInProgress: {
+    backgroundColor: "#dcfce7",
+    borderColor: "#bbf7d0",
+  },
+
+  statusOnHold: {
+    backgroundColor: "#fee2e2",
+    borderColor: "#fecaca",
+  },
+
+  statusClosed: {
+    backgroundColor: "#ede9fe",
+    borderColor: "#ddd6fe",
+  },
+
+  statusText: {
+    color: TEXT,
+    fontWeight: "900",
+    fontSize: 11.5,
   },
 
   pressed: {

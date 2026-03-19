@@ -328,43 +328,57 @@ export default function InvoicesPage() {
   );
 }
 
+
+const PAGE_BG = "#f7f3ea";
+const CARD_BG = "#fffdf8";
+const BORDER = "#e4d6b2";
+const BORDER_SOFT = "#dcc89a";
+const GOLD = "#c9a227";
+const GOLD_BRIGHT = "#d4af37";
+const TEXT = "#111111";
+const MUTED = "#6f6a63";
+const MUTED_2 = "#7b746b";
+const DARK_CARD = "#111111";
+const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+
+
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: "#FAF7F0",
+    backgroundColor: PAGE_BG,
     padding: 22,
     gap: 14,
   },
 
   heroCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: DARK_CARD,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
-    borderRadius: 22,
-    padding: 20,
+    borderColor: DARK_BORDER,
+    borderRadius: 28,
+    padding: 24,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 16,
     flexWrap: "wrap",
     shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
 
   heroTitle: {
     fontSize: 30,
     fontWeight: "900",
-    color: "#111111",
+    color: "#FFFFFF",
   },
 
   heroSub: {
     marginTop: 6,
     fontSize: 14,
     fontWeight: "700",
-    color: "#6B6B6B",
+    color: "rgba(255,255,255,0.76)",
   },
 
   primaryBtn: {
@@ -372,8 +386,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#B8962E",
-    backgroundColor: "#D4AF37",
+    borderColor: GOLD,
+    backgroundColor: GOLD_BRIGHT,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -393,9 +407,9 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 180,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
+    borderColor: BORDER,
     borderRadius: 18,
     padding: 16,
   },
@@ -403,22 +417,22 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#8B7A60",
+    color: MUTED_2,
   },
 
   statValue: {
     marginTop: 8,
     fontSize: 24,
     fontWeight: "900",
-    color: "#B8962E",
+    color: GOLD,
   },
 
   searchWrap: {
     height: 48,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
+    borderColor: BORDER,
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -434,9 +448,9 @@ const styles = StyleSheet.create({
 
   tableCard: {
     overflow: "hidden",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
     borderWidth: 1,
-    borderColor: "#E8DFC7",
+    borderColor: BORDER,
     borderRadius: 22,
   },
 
@@ -470,7 +484,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#FBF6EA",
+    backgroundColor: "#f5ecd3",
     borderBottomWidth: 1,
     borderBottomColor: "#E8DFC7",
   },
@@ -478,7 +492,7 @@ const styles = StyleSheet.create({
   th: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#8B7A60",
+    color: MUTED_2,
   },
 
   tr: {
@@ -486,11 +500,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: "#F1E7D2",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
   },
 
   trStriped: {
-    backgroundColor: "#FFFDF8",
+    backgroundColor: CARD_BG,
   },
 
   trPressed: {

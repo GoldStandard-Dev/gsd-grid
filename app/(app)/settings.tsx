@@ -1,4 +1,3 @@
-// app/(app)/settings.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -257,7 +256,11 @@ function ColorSelector({
                   <Ionicons
                     name="checkmark"
                     size={14}
-                    color={color === "#111111" || color === "#166534" || color === "#B42318" ? "#FFFFFF" : "#111111"}
+                    color={
+                      color === "#111111" || color === "#166534" || color === "#B42318"
+                        ? "#FFFFFF"
+                        : "#111111"
+                    }
                   />
                 ) : null}
               </Pressable>
@@ -336,7 +339,7 @@ export default function Settings() {
       setForm({
         company_name: row.company_name ?? "",
         phone: row.phone ?? "",
-        website: row.website ?? "",
+        website: row.website ? formatWebsiteInput(row.website) : "",
         email: row.email ?? "",
         address_search:
           row.address_search ??
@@ -393,6 +396,10 @@ export default function Settings() {
 
   function onWebsiteBlur() {
     setField("website", formatWebsiteInput(form.website, true));
+  }
+
+  function onEmailBlur() {
+    setField("email", form.email.trim().toLowerCase());
   }
 
   function onPercentChange(value: string) {
@@ -516,9 +523,7 @@ export default function Settings() {
       const path = `${activeOrgId}/${fileName}`;
 
       const uploadBody =
-        typeof File !== "undefined"
-          ? new File([blob], fileName, { type: contentType })
-          : blob;
+        typeof File !== "undefined" ? new File([blob], fileName, { type: contentType }) : blob;
 
       const uploadRes = await supabase.storage
         .from("branding")
@@ -551,7 +556,7 @@ export default function Settings() {
         company_name: form.company_name.trim() || null,
         phone: form.phone.trim() || null,
         website: formatWebsiteInput(form.website, true).trim() || null,
-        email: form.email.trim() || null,
+        email: form.email.trim().toLowerCase() || null,
         address_search: form.address_search.trim() || null,
         address1: form.address1.trim() || null,
         address2: form.address2.trim() || null,
@@ -592,6 +597,7 @@ export default function Settings() {
 
       setForm((prev) => ({
         ...prev,
+        email: prev.email.trim().toLowerCase(),
         website: formatWebsiteInput(prev.website, true),
         brand_primary_color: normalizeHexColor(prev.brand_primary_color),
         brand_secondary_color: normalizeHexColor(prev.brand_secondary_color),
@@ -625,7 +631,7 @@ export default function Settings() {
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Settings</Text>
             <Text style={styles.heroSub}>
-              Manage company defaults, branding, documents, notifications, and team controls.
+              Manage company details, document defaults, branding, and organization controls.
             </Text>
           </View>
 
@@ -651,8 +657,8 @@ export default function Settings() {
 
         <SectionCard
           icon="business-outline"
-          title="Organization"
-          sub="Core business details used across the app."
+          title="Business Information"
+          sub="Core organization details used across invoices, work orders, and customer documents."
         >
           <View style={styles.grid2}>
             <View style={styles.field}>
@@ -693,10 +699,11 @@ export default function Settings() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Business email</Text>
               <TextInput
                 value={form.email}
                 onChangeText={(v) => setField("email", v)}
+                onBlur={onEmailBlur}
                 placeholder="info@yourcompany.com"
                 placeholderTextColor={theme.colors.muted}
                 autoCapitalize="none"
@@ -806,8 +813,8 @@ export default function Settings() {
 
         <SectionCard
           icon="receipt-outline"
-          title="Invoice Defaults"
-          sub="Default settings for invoices and customer billing."
+          title="Invoice & Billing Defaults"
+          sub="Default invoice behavior and customer billing settings."
         >
           <View style={styles.grid3}>
             <View style={styles.field}>
@@ -867,7 +874,7 @@ export default function Settings() {
             />
             <ToggleRow
               label="Show payment terms"
-              sub="Include terms automatically on invoice exports."
+              sub="Include payment terms automatically on invoice exports."
               value={form.invoice_show_payment_terms}
               onChange={(v) => setField("invoice_show_payment_terms", v)}
             />
@@ -883,7 +890,7 @@ export default function Settings() {
         <SectionCard
           icon="document-text-outline"
           title="Work Order Defaults"
-          sub="Set the default behavior and output for work orders."
+          sub="Default behavior and layout settings for work orders."
         >
           <Text style={styles.miniHeading}>Default template</Text>
 
@@ -907,13 +914,13 @@ export default function Settings() {
             />
             <ToggleRow
               label="Enable invoice conversion"
-              sub="Allow work orders to be converted into invoices."
+              sub="Allow approved work orders to convert into invoices."
               value={form.workorder_enable_invoice_conversion}
               onChange={(v) => setField("workorder_enable_invoice_conversion", v)}
             />
             <ToggleRow
               label="Include signature line"
-              sub="Show signature section on printed work orders."
+              sub="Show a signature section on printed work orders."
               value={form.workorder_include_signature}
               onChange={(v) => setField("workorder_include_signature", v)}
             />
@@ -923,7 +930,7 @@ export default function Settings() {
         <SectionCard
           icon="color-palette-outline"
           title="Branding"
-          sub="Upload a logo and set brand colors for documents and future theme controls."
+          sub="Upload a logo and control your brand colors for documents and future theme tools."
         >
           <View style={styles.brandingTop}>
             <View style={styles.logoPreviewCard}>
@@ -1022,7 +1029,7 @@ export default function Settings() {
         <SectionCard
           icon="notifications-outline"
           title="Notifications"
-          sub="Choose which updates and reminders should appear."
+          sub="Choose which organization updates and reminders should appear."
         >
           <View style={styles.toggleStack}>
             <ToggleRow
@@ -1039,7 +1046,7 @@ export default function Settings() {
             />
             <ToggleRow
               label="Team activity updates"
-              sub="Notify when members join or roles change."
+              sub="Notify when members join or role access changes."
               value={form.notify_team_activity}
               onChange={(v) => setField("notify_team_activity", v)}
             />
@@ -1050,11 +1057,19 @@ export default function Settings() {
   );
 }
 
+const PAGE_BG = "#f7f3ea";
+const CARD_BG = "#fffdf8";
+const BORDER = "#e4d6b2";
+const GOLD = "#c9a227";
+const DARK_CARD = "#111111";
+const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    padding: 22,
-    gap: 14,
+    padding: 24,
+    gap: 16,
+    backgroundColor: PAGE_BG,
   },
 
   hero: {
@@ -1064,17 +1079,27 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     flexWrap: "wrap",
+    backgroundColor: DARK_CARD,
+    borderWidth: 1,
+    borderColor: DARK_BORDER,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
 
   heroTitle: {
     fontSize: 30,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: "#FFFFFF",
   },
 
   heroSub: {
     marginTop: 6,
-    color: theme.colors.muted,
+    color: "rgba(255,255,255,0.76)",
     fontSize: 14,
     fontWeight: "700",
   },
@@ -1084,10 +1109,10 @@ const styles = StyleSheet.create({
   },
 
   sectionCard: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: CARD_BG,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     padding: 18,
     shadowColor: "#000",
     shadowOpacity: 0.04,
@@ -1108,8 +1133,8 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#FFF7E2",
+    borderColor: BORDER,
+    backgroundColor: "rgba(212, 175, 55, 0.14)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1159,14 +1184,14 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 11,
     fontSize: 15,
     fontWeight: "700",
     color: theme.colors.ink,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
   },
 
   toggleStack: {
@@ -1176,7 +1201,7 @@ const styles = StyleSheet.create({
   toggleRow: {
     minHeight: 64,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 16,
     backgroundColor: "#FFFCF6",
     paddingHorizontal: 14,
@@ -1217,15 +1242,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#FFFFFF",
+    borderColor: BORDER,
+    backgroundColor: CARD_BG,
     alignItems: "center",
     justifyContent: "center",
   },
 
   pillActive: {
     backgroundColor: "#F5E6B8",
-    borderColor: theme.colors.gold,
+    borderColor: GOLD,
   },
 
   pillText: {
@@ -1241,9 +1266,9 @@ const styles = StyleSheet.create({
   suggestionsBox: {
     marginTop: 8,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 14,
-    backgroundColor: "#fff",
+    backgroundColor: CARD_BG,
     overflow: "hidden",
   },
 
@@ -1310,7 +1335,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 140,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 18,
     backgroundColor: "#FFFCF6",
     alignItems: "center",
@@ -1345,8 +1370,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#FFFFFF",
+    borderColor: BORDER,
+    backgroundColor: CARD_BG,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 14,
@@ -1360,9 +1385,9 @@ const styles = StyleSheet.create({
 
   colorSelectorCard: {
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 16,
-    backgroundColor: "#FFFDF8",
+    backgroundColor: CARD_BG,
     padding: 10,
     gap: 10,
   },
@@ -1378,7 +1403,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
   },
 
   colorHexInput: {
@@ -1396,7 +1421,7 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1408,10 +1433,10 @@ const styles = StyleSheet.create({
 
   brandSampleCard: {
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 18,
     padding: 14,
-    backgroundColor: "#FFFDF8",
+    backgroundColor: CARD_BG,
   },
 
   brandSampleLabel: {

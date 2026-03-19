@@ -1,16 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {Alert, Image, Pressable, StyleSheet, Text, TextInput, View,} from "react-native";
 import Screen from "../../src/components/Screen";
 import GoldButton from "../../src/components/GoldButton";
 import { supabase } from "../../src/lib/supabase";
@@ -22,37 +13,8 @@ type ProfileRow = {
   phone: string | null;
   avatar_url: string | null;
   email: string | null;
-
   job_title: string | null;
-  company_name: string | null;
-  website: string | null;
-
-  address1: string | null;
-  address2: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-
-  timezone: string | null;
-  default_labor_rate: number | null;
-  default_tax_rate: number | null;
-  invoice_terms: string | null;
   notes: string | null;
-};
-
-type AddressSuggestion = {
-  place_id: string;
-  display_name: string;
-  address?: {
-    house_number?: string;
-    road?: string;
-    city?: string;
-    town?: string;
-    village?: string;
-    hamlet?: string;
-    state?: string;
-    postcode?: string;
-  };
 };
 
 const JOB_TITLE_PRESETS = [
@@ -66,15 +28,6 @@ const JOB_TITLE_PRESETS = [
   "Custom",
 ] as const;
 
-const INVOICE_TERM_PRESETS = [
-  "Due upon receipt",
-  "Net 7",
-  "Net 15",
-  "Net 30",
-  "50% deposit, balance on completion",
-  "Custom",
-] as const;
-
 function formatPhoneInput(value: string) {
   const digits = (value ?? "").replace(/\D/g, "").slice(0, 10);
 
@@ -85,24 +38,6 @@ function formatPhoneInput(value: string) {
 
 function normalizeEmail(value: string) {
   return (value ?? "").trim().toLowerCase();
-}
-
-function formatWebsiteInput(value: string, finalize?: boolean) {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed) return "";
-
-  let next = trimmed.replace(/\s+/g, "");
-  next = next.replace(/^https?:\/\//i, "");
-
-  if (finalize) return `https://${next}`;
-  return next;
-}
-
-function cleanDecimalInput(value: string) {
-  const cleaned = (value ?? "").replace(/[^0-9.]/g, "");
-  const parts = cleaned.split(".");
-  if (parts.length <= 1) return cleaned;
-  return `${parts[0]}.${parts.slice(1).join("")}`;
 }
 
 function SectionCard({
@@ -161,32 +96,11 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [email, setEmail] = useState("");
-
   const [jobTitle, setJobTitle] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [website, setWebsite] = useState("");
-
-  const [addressSearch, setAddressSearch] = useState("");
-  const [address1, setAddress1] = useState("");
-  const [address2, setAddress2] = useState("");
-  const [city, setCity] = useState("");
-  const [stateProv, setStateProv] = useState("");
-  const [zip, setZip] = useState("");
-
-  const [timezone, setTimezone] = useState("");
-  const [defaultLaborRate, setDefaultLaborRate] = useState("");
-  const [defaultTaxRate, setDefaultTaxRate] = useState("");
-  const [invoiceTerms, setInvoiceTerms] = useState("");
   const [notes, setNotes] = useState("");
-
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [loadingAddressSuggestions, setLoadingAddressSuggestions] = useState(false);
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
 
   const [pageError, setPageError] = useState("");
   const [pageMessage, setPageMessage] = useState("");
-
-  const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const initials = useMemo(() => {
     const source = fullName.trim() || email.trim() || accountEmail.trim() || "ME";
@@ -207,22 +121,8 @@ export default function ProfilePage() {
     );
   }, [jobTitle]);
 
-  const selectedInvoiceTermsPreset = useMemo(() => {
-    const value = invoiceTerms.trim().toLowerCase();
-    if (!value) return "";
-    return (
-      INVOICE_TERM_PRESETS.find((item) => item !== "Custom" && item.toLowerCase() === value) ?? "Custom"
-    );
-  }, [invoiceTerms]);
-
   useEffect(() => {
     void loadProfile();
-
-    return () => {
-      if (addressSearchTimeout.current) {
-        clearTimeout(addressSearchTimeout.current);
-      }
-    };
   }, []);
 
   async function loadProfile() {
@@ -244,9 +144,7 @@ export default function ProfilePage() {
 
       const res = await supabase
         .from("profiles")
-        .select(
-          "user_id, full_name, phone, avatar_url, email, job_title, company_name, website, address1, address2, city, state, zip, timezone, default_labor_rate, default_tax_rate, invoice_terms, notes"
-        )
+        .select("user_id, full_name, phone, avatar_url, email, job_title, notes")
         .eq("user_id", user.id)
         .maybeSingle();
 
@@ -256,35 +154,13 @@ export default function ProfilePage() {
       setPhone(p?.phone ?? "");
       setAvatarUrl(p?.avatar_url ?? "");
       setEmail(p?.email ?? user.email ?? "");
-
       setJobTitle(p?.job_title ?? "");
-      setCompanyName(p?.company_name ?? "");
-      setWebsite(p?.website ? p.website.replace(/^https?:\/\//i, "") : "");
-
-      setAddress1(p?.address1 ?? "");
-      setAddress2(p?.address2 ?? "");
-      setCity(p?.city ?? "");
-      setStateProv(p?.state ?? "");
-      setZip(p?.zip ?? "");
-      setAddressSearch([p?.address1, p?.address2, p?.city, p?.state, p?.zip].filter(Boolean).join(", "));
-
-      setTimezone(p?.timezone ?? "");
-      setDefaultLaborRate(p?.default_labor_rate != null ? String(p.default_labor_rate) : "");
-      setDefaultTaxRate(p?.default_tax_rate != null ? String(p.default_tax_rate) : "");
-      setInvoiceTerms(p?.invoice_terms ?? "");
       setNotes(p?.notes ?? "");
     } catch (error: any) {
       setPageError(error?.message ?? "Failed to load profile.");
     } finally {
       setLoading(false);
     }
-  }
-
-  function toNumberOrNull(s: string) {
-    const t = s.trim();
-    if (!t) return null;
-    const n = Number(t);
-    return Number.isFinite(n) ? n : null;
   }
 
   function onPhoneChange(value: string) {
@@ -295,95 +171,13 @@ export default function ProfilePage() {
     setEmail(normalizeEmail(email));
   }
 
-  function onWebsiteChange(value: string) {
-    setWebsite(formatWebsiteInput(value));
-  }
-
-  function onWebsiteBlur() {
-    setWebsite(formatWebsiteInput(website));
-  }
-
-  function onAddressChange(value: string) {
-    setAddressSearch(value);
-    setShowAddressSuggestions(true);
-
-    if (addressSearchTimeout.current) clearTimeout(addressSearchTimeout.current);
-
-    const query = value.trim();
-    if (query.length < 4) {
-      setAddressSuggestions([]);
-      setLoadingAddressSuggestions(false);
-      return;
-    }
-
-    addressSearchTimeout.current = setTimeout(() => {
-      void fetchAddressSuggestions(query);
-    }, 350);
-  }
-
-  async function fetchAddressSuggestions(query: string) {
-    setLoadingAddressSuggestions(true);
-
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!res.ok) throw new Error("Address lookup failed.");
-
-      const data = await res.json();
-
-      const suggestions: AddressSuggestion[] = Array.isArray(data)
-        ? data.map((item: any) => ({
-            place_id: String(item.place_id),
-            display_name: item.display_name ?? "",
-            address: item.address ?? {},
-          }))
-        : [];
-
-      setAddressSuggestions(suggestions);
-      setShowAddressSuggestions(true);
-    } catch {
-      setAddressSuggestions([]);
-    } finally {
-      setLoadingAddressSuggestions(false);
-    }
-  }
-
-  function chooseAddress(item: AddressSuggestion) {
-    const address = item.address ?? {};
-    const line1 = [address.house_number, address.road].filter(Boolean).join(" ").trim();
-    const nextCity = address.city || address.town || address.village || address.hamlet || "";
-    const nextState = address.state || "";
-    const nextZip = address.postcode || "";
-
-    setAddressSearch(item.display_name);
-    setAddress1(line1 || address1);
-    setCity(nextCity || city);
-    setStateProv(nextState || stateProv);
-    setZip(nextZip || zip);
-
-    setAddressSuggestions([]);
-    setShowAddressSuggestions(false);
-  }
-
   function chooseJobTitle(value: string) {
     if (value === "Custom") {
       setJobTitle("");
       return;
     }
-    setJobTitle(value);
-  }
 
-  function chooseInvoiceTerms(value: string) {
-    if (value === "Custom") {
-      setInvoiceTerms("");
-      return;
-    }
-    setInvoiceTerms(value);
+    setJobTitle(value);
   }
 
   async function saveProfile(nextAvatarUrl?: string) {
@@ -399,21 +193,7 @@ export default function ProfilePage() {
       phone: phone.trim() || null,
       avatar_url: (nextAvatarUrl ?? avatarUrl).trim() || null,
       email: normalizeEmail(email) || null,
-
       job_title: jobTitle.trim() || null,
-      company_name: companyName.trim() || null,
-      website: formatWebsiteInput(website, true).trim() || null,
-
-      address1: address1.trim() || null,
-      address2: address2.trim() || null,
-      city: city.trim() || null,
-      state: stateProv.trim() || null,
-      zip: zip.trim() || null,
-
-      timezone: timezone.trim() || null,
-      default_labor_rate: toNumberOrNull(defaultLaborRate),
-      default_tax_rate: toNumberOrNull(defaultTaxRate),
-      invoice_terms: invoiceTerms.trim() || null,
       notes: notes.trim() || null,
     };
 
@@ -430,7 +210,6 @@ export default function ProfilePage() {
     if (nextAvatarUrl) setAvatarUrl(nextAvatarUrl);
 
     setEmail(normalizeEmail(email));
-    setWebsite(formatWebsiteInput(website));
     setPageMessage("Profile saved.");
     Alert.alert("Success", "Profile saved.");
   }
@@ -453,7 +232,7 @@ export default function ProfilePage() {
 
     const asset = picked.assets?.[0];
     const uri = asset?.uri;
-    if (!uri) return;
+    if (!uri || !userId) return;
 
     try {
       setSaving(true);
@@ -465,9 +244,7 @@ export default function ProfilePage() {
       const path = `${userId}/${fileName}`;
 
       const uploadBody =
-        typeof File !== "undefined"
-          ? new File([blob], fileName, { type: contentType })
-          : blob;
+        typeof File !== "undefined" ? new File([blob], fileName, { type: contentType }) : blob;
 
       const upload = await supabase.storage
         .from("avatars")
@@ -494,7 +271,7 @@ export default function ProfilePage() {
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Profile</Text>
             <Text style={styles.heroSub}>
-              Manage your contact details, business profile, defaults, and photo.
+              Manage your personal account details, job title, and profile photo.
             </Text>
           </View>
 
@@ -521,7 +298,7 @@ export default function ProfilePage() {
         <SectionCard
           icon="person-circle-outline"
           title="Profile Photo"
-          sub="Upload a profile image used throughout the app."
+          sub="Upload a personal profile image used throughout the app."
         >
           <View style={styles.photoRow}>
             <View style={styles.photoCard}>
@@ -548,8 +325,8 @@ export default function ProfilePage() {
 
         <SectionCard
           icon="person-outline"
-          title="Owner Information"
-          sub="Your main contact details and job title."
+          title="Personal Information"
+          sub="Your main contact details for your account."
         >
           <View style={styles.grid2}>
             <View style={styles.field}>
@@ -589,7 +366,15 @@ export default function ProfilePage() {
               />
             </View>
 
-            <View style={styles.field} />
+            <View style={styles.field}>
+              <Text style={styles.label}>Account email</Text>
+              <TextInput
+                value={accountEmail}
+                editable={false}
+                placeholderTextColor={theme.colors.muted}
+                style={[styles.input, styles.inputDisabled]}
+              />
+            </View>
           </View>
 
           <Text style={styles.miniHeading}>Job title</Text>
@@ -617,221 +402,16 @@ export default function ProfilePage() {
         </SectionCard>
 
         <SectionCard
-          icon="business-outline"
-          title="Business Information"
-          sub="Business identity and website used on customer-facing documents."
-        >
-          <View style={styles.grid2}>
-            <View style={styles.field}>
-              <Text style={styles.label}>Company name</Text>
-              <TextInput
-                value={companyName}
-                onChangeText={setCompanyName}
-                placeholder="GSD Grid Services"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Website</Text>
-              <TextInput
-                value={website}
-                onChangeText={onWebsiteChange}
-                onBlur={onWebsiteBlur}
-                placeholder="yourcompany.com"
-                placeholderTextColor={theme.colors.muted}
-                autoCapitalize="none"
-                keyboardType="url"
-                style={styles.input}
-              />
-            </View>
-          </View>
-        </SectionCard>
-
-        <SectionCard
-          icon="location-outline"
-          title="Business Address"
-          sub="Search and autofill your address, city, state, and ZIP."
-        >
-          <View style={styles.field}>
-            <Text style={styles.label}>Address search</Text>
-            <TextInput
-              value={addressSearch}
-              onChangeText={onAddressChange}
-              onFocus={() => {
-                if (addressSuggestions.length) setShowAddressSuggestions(true);
-              }}
-              placeholder="Start typing your business address..."
-              placeholderTextColor={theme.colors.muted}
-              style={styles.input}
-            />
-
-            {showAddressSuggestions ? (
-              <View style={styles.suggestionsBox}>
-                {loadingAddressSuggestions ? (
-                  <Text style={styles.suggestionLoading}>Searching addresses...</Text>
-                ) : addressSuggestions.length === 0 ? (
-                  addressSearch.trim().length >= 4 ? (
-                    <Text style={styles.suggestionLoading}>No address matches found.</Text>
-                  ) : null
-                ) : (
-                  addressSuggestions.map((item) => (
-                    <Pressable
-                      key={item.place_id}
-                      onPress={() => chooseAddress(item)}
-                      style={({ pressed }) => [
-                        styles.suggestionItem,
-                        pressed ? styles.suggestionItemPressed : null,
-                      ]}
-                    >
-                      <Text style={styles.suggestionText}>{item.display_name}</Text>
-                    </Pressable>
-                  ))
-                )}
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.grid2}>
-            <View style={styles.field}>
-              <Text style={styles.label}>Address line 1</Text>
-              <TextInput
-                value={address1}
-                onChangeText={setAddress1}
-                placeholder="123 Main St"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Address line 2</Text>
-              <TextInput
-                value={address2}
-                onChangeText={setAddress2}
-                placeholder="Suite / Unit"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>City</Text>
-              <TextInput
-                value={city}
-                onChangeText={setCity}
-                placeholder="City"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>State</Text>
-              <TextInput
-                value={stateProv}
-                onChangeText={setStateProv}
-                placeholder="NC"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>ZIP</Text>
-              <TextInput
-                value={zip}
-                onChangeText={(v) => setZip(v.replace(/[^\d-]/g, "").slice(0, 10))}
-                placeholder="28012"
-                placeholderTextColor={theme.colors.muted}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-          </View>
-        </SectionCard>
-
-        <SectionCard
-          icon="receipt-outline"
-          title="Invoice Defaults"
-          sub="Common defaults used when creating invoices and work orders."
-        >
-          <View style={styles.grid2}>
-            <View style={styles.field}>
-              <Text style={styles.label}>Default labor rate</Text>
-              <TextInput
-                value={defaultLaborRate}
-                onChangeText={(v) => setDefaultLaborRate(cleanDecimalInput(v))}
-                placeholder="85"
-                placeholderTextColor={theme.colors.muted}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Default tax rate (%)</Text>
-              <TextInput
-                value={defaultTaxRate}
-                onChangeText={(v) => setDefaultTaxRate(cleanDecimalInput(v))}
-                placeholder="7.25"
-                placeholderTextColor={theme.colors.muted}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-          </View>
-
-          <Text style={styles.miniHeading}>Invoice terms</Text>
-          <View style={styles.pillRow}>
-            {INVOICE_TERM_PRESETS.map((option) => (
-              <ChoicePill
-                key={option}
-                label={option}
-                active={selectedInvoiceTermsPreset === option}
-                onPress={() => chooseInvoiceTerms(option)}
-              />
-            ))}
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Custom invoice terms</Text>
-            <TextInput
-              value={invoiceTerms}
-              onChangeText={setInvoiceTerms}
-              placeholder="Due upon receipt / Net 15 / Net 30"
-              placeholderTextColor={theme.colors.muted}
-              style={styles.input}
-            />
-          </View>
-
-          <View style={styles.grid2}>
-            <View style={styles.field}>
-              <Text style={styles.label}>Timezone</Text>
-              <TextInput
-                value={timezone}
-                onChangeText={setTimezone}
-                placeholder="America/New_York"
-                placeholderTextColor={theme.colors.muted}
-                autoCapitalize="none"
-                style={styles.input}
-              />
-            </View>
-          </View>
-        </SectionCard>
-
-        <SectionCard
           icon="document-text-outline"
-          title="Internal Notes"
-          sub="Private notes about your workflow, invoicing, or profile details."
+          title="Personal Notes"
+          sub="Private notes for your own profile or internal reference."
         >
           <View style={styles.field}>
             <Text style={styles.label}>Notes</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder="Anything you want your team to know about invoicing, procedures, etc."
+              placeholder="Notes about your role, contact preferences, or account details."
               placeholderTextColor={theme.colors.muted}
               style={[styles.input, styles.textArea]}
               multiline
@@ -843,11 +423,19 @@ export default function ProfilePage() {
   );
 }
 
+const PAGE_BG = "#f7f3ea";
+const CARD_BG = "#fffdf8";
+const BORDER = "#e4d6b2";
+const GOLD = "#c9a227";
+const DARK_CARD = "#111111";
+const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    padding: 22,
-    gap: 14,
+    padding: 24,
+    gap: 16,
+    backgroundColor: PAGE_BG,
   },
 
   hero: {
@@ -857,17 +445,27 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     flexWrap: "wrap",
+    backgroundColor: DARK_CARD,
+    borderWidth: 1,
+    borderColor: DARK_BORDER,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
 
   heroTitle: {
     fontSize: 30,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: "#FFFFFF",
   },
 
   heroSub: {
     marginTop: 6,
-    color: theme.colors.muted,
+    color: "rgba(255,255,255,0.76)",
     fontSize: 14,
     fontWeight: "700",
   },
@@ -877,10 +475,10 @@ const styles = StyleSheet.create({
   },
 
   sectionCard: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: CARD_BG,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     padding: 18,
     shadowColor: "#000",
     shadowOpacity: 0.04,
@@ -901,8 +499,8 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#FFF7E2",
+    borderColor: BORDER,
+    backgroundColor: "rgba(212, 175, 55, 0.14)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -946,14 +544,19 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 11,
     fontSize: 15,
     fontWeight: "700",
     color: theme.colors.ink,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD_BG,
+  },
+
+  inputDisabled: {
+    opacity: 0.7,
+    backgroundColor: "#f3eee3",
   },
 
   miniHeading: {
@@ -974,15 +577,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: "#FFFFFF",
+    borderColor: BORDER,
+    backgroundColor: CARD_BG,
     alignItems: "center",
     justifyContent: "center",
   },
 
   pillActive: {
     backgroundColor: "#F5E6B8",
-    borderColor: theme.colors.gold,
+    borderColor: GOLD,
   },
 
   pillText: {
@@ -993,39 +596,6 @@ const styles = StyleSheet.create({
 
   pillTextActive: {
     color: theme.colors.goldDark,
-  },
-
-  suggestionsBox: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: 14,
-    backgroundColor: "#fff",
-    overflow: "hidden",
-  },
-
-  suggestionLoading: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: theme.colors.muted,
-    fontWeight: "700",
-  },
-
-  suggestionItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-  },
-
-  suggestionItemPressed: {
-    backgroundColor: "#faf7ef",
-  },
-
-  suggestionText: {
-    color: theme.colors.ink,
-    fontWeight: "700",
-    lineHeight: 19,
   },
 
   bannerError: {
@@ -1067,7 +637,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: BORDER,
     borderRadius: 24,
     backgroundColor: "#FFFCF6",
     alignItems: "center",
