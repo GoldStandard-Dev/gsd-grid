@@ -42,64 +42,25 @@ export async function getUserOrgId(userId: string) {
 }
 
 export async function createOrganizationForCurrentUser(orgName: string) {
-  if (!orgName) {
+  if (!orgName?.trim()) {
     return { ok: false as const, error: "Organization name is required." };
   }
 
-  // 🔥 Ensure we ACTUALLY have a session
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !authData?.user) {
-    return { ok: false as const, error: "User not authenticated." };
-  }
-
-  const userId = authData.user.id;
-  const email = authData.user.email ?? "Owner";
-
-  // 🔥 Create org
-  const org = await supabase
-    .from("organizations")
-    .insert({
-      name: orgName,
-      owner_user_id: userId
-    })
-    .select("id")
-    .single();
-
-  if (org.error || !org.data) {
-    return { ok: false as const, error: org.error?.message || "Failed to create org." };
-  }
-
-  const orgId = org.data.id;
-
-  // 🔥 Create OWNER membership (this was the breaking point before)
-  const member = await supabase.from("org_members").insert({
-    org_id: orgId,
-    user_id: userId,
-    role: "owner",
-    status: "active",
-    display_name: email
+  // Use the SECURITY DEFINER RPC so the insert is never blocked by RLS,
+  // even if the client session hasn't finished restoring from localStorage.
+  const { data, error } = await supabase.rpc("create_organization_for_user", {
+    p_org_name: orgName.trim(),
   });
 
-  if (member.error) {
-    return { ok: false as const, error: member.error.message };
+  if (error) {
+    return { ok: false as const, error: error.message };
   }
 
-  // 🔥 Create default organization settings
-  await supabase.from("organization_settings").insert({
-    org_id: orgId,
-    company_name: orgName,
-  });
+  const result = data as { ok: boolean; error?: string; org_id?: string };
 
-  // 🔥 Log activity (non-blocking)
-  await supabase.from("activity_log").insert({
-    org_id: orgId,
-    actor_user_id: userId,
-    actor_name: email,
-    action: "created organization",
-    entity_type: "organization",
-    entity_id: orgId
-  });
+  if (!result.ok) {
+    return { ok: false as const, error: result.error ?? "Failed to create organization." };
+  }
 
-  return { ok: true as const, orgId };
+  return { ok: true as const, orgId: result.org_id! };
 }
