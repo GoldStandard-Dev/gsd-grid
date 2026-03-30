@@ -24,9 +24,9 @@ export default function GoldButton({
       style={({ pressed }) => [
         styles.btn,
         variant === "outline" ? styles.outline : null,
-        variant === "ghost" ? styles.ghost : null,
-        pressed ? styles.pressed : null,
-        disabled ? styles.disabled : null,
+        variant === "ghost"   ? styles.ghost   : null,
+        pressed               ? styles.pressed  : null,
+        disabled              ? styles.disabled : null,
         style,
       ]}
     >
@@ -34,7 +34,7 @@ export default function GoldButton({
         style={[
           styles.text,
           variant === "outline" ? styles.textOutline : null,
-          variant === "ghost" ? styles.textGhost : null,
+          variant === "ghost"   ? styles.textGhost   : null,
         ]}
       >
         {label}
@@ -45,20 +45,19 @@ export default function GoldButton({
 
 const styles = StyleSheet.create({
   btn: {
-    minHeight: 48,
+    minHeight: 44,
     backgroundColor: theme.colors.gold,
     borderRadius: theme.radius.md,
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.goldDark,
     ...theme.shadow.gold,
   },
 
   outline: {
     backgroundColor: "transparent",
+    borderWidth: 1,
     borderColor: theme.colors.gold,
     shadowOpacity: 0,
     elevation: 0,
@@ -66,14 +65,13 @@ const styles = StyleSheet.create({
 
   ghost: {
     backgroundColor: "transparent",
-    borderColor: "transparent",
     shadowOpacity: 0,
     elevation: 0,
   },
 
   pressed: {
-    opacity: 0.88,
-    transform: [{ translateY: 1 }],
+    opacity: 0.85,
+    transform: [{ scale: 0.985 }],
   },
 
   disabled: {
@@ -81,10 +79,10 @@ const styles = StyleSheet.create({
   },
 
   text: {
-    color: "#111111",
-    fontWeight: "900",
+    color: "#1a1a1a",
+    fontWeight: "600",
     fontSize: 14,
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
   },
 
   textOutline: {

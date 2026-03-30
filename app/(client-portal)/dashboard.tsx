@@ -12,14 +12,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#FFFFFF";
-const CARD = "#111111";
-const BORDER = "rgba(212,175,55,0.22)";
-const GOLD = "#D4AF37";
-const TEXT_ON_DARK = "#FFFFFF";
-const MUTED_ON_DARK = "#A3A3A3";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 type PortalAccess = {
   id: string;
@@ -245,23 +252,23 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   eyebrow: { fontSize: 11, fontWeight: "900", color: GOLD, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 },
   heroTitle: { fontSize: 28, fontWeight: "900", color: TEXT, lineHeight: 34 },
-  logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#FFFDF8", borderWidth: 1, borderColor: "#EDE8DA", alignItems: "center", justifyContent: "center" },
+  logoutBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center" },
 
   statsRow: { flexDirection: "row", gap: 10 },
-  statCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 16, alignItems: "center" },
+  statCard: { backgroundColor: DARK_CARD, borderRadius: 18, borderWidth: 1, borderColor: "rgba(201,162,39,0.20)", padding: 16, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 5 },
   statLabel: { fontSize: 11, fontWeight: "700", color: MUTED_ON_DARK, textTransform: "uppercase", letterSpacing: 0.8 },
-  statValue: { fontSize: 22, fontWeight: "900", color: GOLD, marginTop: 4 },
+  statValue: { fontSize: 22, fontWeight: "900", color: "#ffffff", marginTop: 4 },
 
   section: { gap: 8 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 13, fontWeight: "900", color: TEXT, textTransform: "uppercase", letterSpacing: 0.8 },
   seeAll: { fontSize: 12, fontWeight: "700", color: GOLD },
 
-  emptyCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 24, alignItems: "center", gap: 8 },
-  emptyText: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
+  emptyCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 24, alignItems: "center", gap: 8, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  emptyText: { fontSize: 13, fontWeight: "700", color: MUTED },
 
-  rowCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  rowTitle: { flex: 1, fontSize: 14, fontWeight: "900", color: TEXT_ON_DARK },
+  rowCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  rowTitle: { flex: 1, fontSize: 14, fontWeight: "900", color: TEXT },
   invLeft: { flex: 1, gap: 2 },
   invAmount: { fontSize: 13, fontWeight: "700", color: GOLD },
   chip: { borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },

@@ -15,16 +15,21 @@ import { useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 import { getUserOrgId } from "../../src/lib/auth";
 
-const PAGE_BG = "#FFFFFF";
-const CARD = "#111111";
-const CARD_SOFT = "#1C1C1C";
-const BORDER = "rgba(212,175,55,0.22)";
-const GOLD = "#D4AF37";
-const TEXT_ON_DARK = "#FFFFFF";
-const MUTED_ON_DARK = "#A3A3A3";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
-const DANGER = "#DC2626";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 type TimeEntry = {
   id: string;
@@ -287,32 +292,33 @@ const styles = StyleSheet.create({
   clockCard: {
     backgroundColor: CARD, borderRadius: 22, borderWidth: 1, borderColor: BORDER,
     padding: 24, gap: 12, alignItems: "center",
+    shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
 
-  clockedInBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(22,101,52,0.3)", borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
-  clockedInDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#4ADE80" },
-  clockedInLabel: { fontSize: 12, fontWeight: "900", color: "#4ADE80", textTransform: "uppercase", letterSpacing: 0.8 },
+  clockedInBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: SUCCESS_BG, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
+  clockedInDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: SUCCESS },
+  clockedInLabel: { fontSize: 12, fontWeight: "900", color: SUCCESS, textTransform: "uppercase", letterSpacing: 0.8 },
 
   elapsed: { fontSize: 48, fontWeight: "900", color: GOLD, letterSpacing: 1 },
-  clockedSince: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
-  clockNote: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK, fontStyle: "italic" },
+  clockedSince: { fontSize: 13, fontWeight: "700", color: MUTED },
+  clockNote: { fontSize: 13, fontWeight: "700", color: MUTED, fontStyle: "italic" },
 
-  clockedOutBadge: { backgroundColor: CARD_SOFT, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
-  clockedOutLabel: { fontSize: 12, fontWeight: "900", color: MUTED_ON_DARK, textTransform: "uppercase", letterSpacing: 0.8 },
-  clockPrompt: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK, alignSelf: "flex-start" },
+  clockedOutBadge: { backgroundColor: CARD_ALT, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1, borderColor: BORDER },
+  clockedOutLabel: { fontSize: 12, fontWeight: "900", color: MUTED, textTransform: "uppercase", letterSpacing: 0.8 },
+  clockPrompt: { fontSize: 13, fontWeight: "700", color: MUTED, alignSelf: "flex-start" },
 
   noteInput: {
-    width: "100%", minHeight: 60, backgroundColor: CARD_SOFT, borderRadius: 12, borderWidth: 1,
-    borderColor: BORDER, padding: 12, color: TEXT_ON_DARK, fontSize: 14, fontWeight: "600",
+    width: "100%", minHeight: 60, backgroundColor: CARD, borderRadius: 12, borderWidth: 1,
+    borderColor: BORDER, padding: 12, color: TEXT, fontSize: 14, fontWeight: "600",
   },
 
   clockBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 8, minHeight: 52, width: "100%", borderRadius: 16, borderWidth: 1,
   },
-  clockBtnIn: { backgroundColor: GOLD, borderColor: "#B8962E", shadowColor: GOLD, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  clockBtnOut: { backgroundColor: DANGER, borderColor: "#B91C1C" },
-  clockBtnText: { fontSize: 15, fontWeight: "900", color: TEXT },
+  clockBtnIn: { backgroundColor: GOLD, borderColor: GOLD_DARK, shadowColor: GOLD, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  clockBtnOut: { backgroundColor: "#DC2626", borderColor: "#B91C1C" },
+  clockBtnText: { fontSize: 15, fontWeight: "900", color: "#1a1a1a" },
 
   section: { gap: 8 },
   sectionTitle: { fontSize: 13, fontWeight: "900", color: TEXT, textTransform: "uppercase", letterSpacing: 0.8 },
@@ -320,10 +326,11 @@ const styles = StyleSheet.create({
   entryRow: {
     backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: BORDER,
     padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
   entryLeft: { flex: 1, gap: 2 },
   entryDate: { fontSize: 12, fontWeight: "900", color: GOLD },
-  entryTime: { fontSize: 13, fontWeight: "700", color: TEXT_ON_DARK },
-  entryJob: { fontSize: 12, fontWeight: "600", color: MUTED_ON_DARK },
+  entryTime: { fontSize: 13, fontWeight: "700", color: TEXT },
+  entryJob: { fontSize: 12, fontWeight: "600", color: MUTED },
   entryHours: { fontSize: 15, fontWeight: "900", color: GOLD },
 });

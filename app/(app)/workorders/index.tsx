@@ -45,16 +45,16 @@ const REVIEW_ROLES = [
   "office_admin",
 ] as const;
 
-const PAGE_BG = "#FFFFFF";
-const CARD_BG = "#FFFFFF";
+const PAGE_BG = "#f7f5ef";
+const CARD_BG = "#ffffff";
 const CARD_WHITE = "#FFFFFF";
-const BORDER = "#EDE8DA";
+const BORDER = "#e6dcc6";
 const BORDER_STRONG = "rgba(212,175,55,0.22)";
-const GOLD = "#D4AF37";
+const GOLD = "#c9a227";
 const GOLD_BRIGHT = "#D4AF37";
 const GOLD_SOFT = "#FFF4D6";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
+const TEXT = "#1a1a1a";
+const MUTED = "#6b6b6b";
 const MUTED_2 = "#6B6B6B";
 const HERO_BG = "#111111";
 

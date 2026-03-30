@@ -14,16 +14,22 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 import { getUserOrgId } from "../../src/lib/auth";
 
-const PAGE_BG = "#FFFFFF";
-const CARD = "#111111";
-const CARD_SOFT = "#1C1C1C";
-const BORDER = "rgba(212,175,55,0.22)";
-const BORDER_LIGHT = "#EDE8DA";
-const GOLD = "#D4AF37";
-const TEXT_ON_DARK = "#FFFFFF";
-const MUTED_ON_DARK = "#A3A3A3";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const BORDER_LIGHT = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 type WorkOrder = {
   id: string;
@@ -247,32 +253,32 @@ const styles = StyleSheet.create({
   backText: { fontSize: 14, fontWeight: "700", color: TEXT },
   pageTitle: { fontSize: 26, fontWeight: "900", color: TEXT },
 
-  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10 },
-  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED_ON_DARK },
+  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED },
 
-  woCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  woCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   woRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   woLeft: { flex: 1, gap: 2 },
-  woTitle: { fontSize: 14, fontWeight: "900", color: TEXT_ON_DARK },
-  woClient: { fontSize: 12, fontWeight: "700", color: MUTED_ON_DARK },
+  woTitle: { fontSize: 14, fontWeight: "900", color: TEXT },
+  woClient: { fontSize: 12, fontWeight: "700", color: MUTED },
 
   statusChip: { borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },
   statusChipText: { fontSize: 11, fontWeight: "900" },
 
-  detailCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 12 },
+  detailCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 12, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   detailHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
-  detailTitle: { flex: 1, fontSize: 20, fontWeight: "900", color: TEXT_ON_DARK },
+  detailTitle: { flex: 1, fontSize: 20, fontWeight: "900", color: TEXT },
   clientRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  clientName: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
-  description: { fontSize: 14, fontWeight: "600", color: MUTED_ON_DARK, lineHeight: 20 },
-  scopeBox: { backgroundColor: CARD_SOFT, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 12, gap: 4 },
+  clientName: { fontSize: 13, fontWeight: "700", color: MUTED },
+  description: { fontSize: 14, fontWeight: "600", color: MUTED, lineHeight: 20 },
+  scopeBox: { backgroundColor: CARD_ALT, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 12, gap: 4 },
   scopeLabel: { fontSize: 11, fontWeight: "900", color: GOLD, textTransform: "uppercase", letterSpacing: 0.8 },
-  scopeText: { fontSize: 13, fontWeight: "600", color: TEXT_ON_DARK, lineHeight: 20 },
+  scopeText: { fontSize: 13, fontWeight: "600", color: TEXT, lineHeight: 20 },
 
   section: { gap: 8 },
   sectionTitle: { fontSize: 13, fontWeight: "900", color: TEXT, textTransform: "uppercase", letterSpacing: 0.8 },
 
   statusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusBtn: { flex: 1, minWidth: 100, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: BORDER, alignItems: "center", backgroundColor: CARD },
-  statusBtnText: { fontSize: 13, fontWeight: "900", color: TEXT_ON_DARK },
+  statusBtnText: { fontSize: 13, fontWeight: "900", color: TEXT },
 });

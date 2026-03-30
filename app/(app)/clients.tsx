@@ -517,17 +517,23 @@ export default function Clients() {
 }
 
 
-const PAGE_BG = "#FFFFFF";
-const CARD_BG = "#FFFFFF";
-const BORDER = "#EDE8DA";
-const BORDER_SOFT = "rgba(212,175,55,0.22)";
-const GOLD = "#D4AF37";
-const GOLD_BRIGHT = "#D4AF37";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
-const MUTED_2 = "#6B6B6B";
-const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212,175,55,0.22)";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_2   = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const DANGER_BR = "#fca5a5";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 
 const styles = StyleSheet.create({
@@ -542,23 +548,23 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     backgroundColor: DARK_CARD,
     borderWidth: 1,
-    borderColor: DARK_BORDER,
+    borderColor: "rgba(201,162,39,0.20)",
     borderRadius: 28,
     padding: 24,
     shadowColor: "#000",
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.15,
     shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
   },
 
   primaryBtn: {
-    backgroundColor: GOLD_BRIGHT,
+    backgroundColor: GOLD,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: GOLD,
+    borderColor: GOLD_DARK,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -568,15 +574,15 @@ const styles = StyleSheet.create({
   },
 
   primaryBtnText: {
-    fontWeight: "900",
-    color: "#111",
+    fontWeight: "600",
+    color: "#1a1a1a",
   },
 
   heroTitle: {
     fontSize: 36,
     lineHeight: 40,
     fontWeight: "900",
-    color: "#FFFFFF",
+    color: "#ffffff",
   },
 
   heroSub: {
@@ -584,12 +590,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     fontWeight: "700",
-    color: "rgba(255,255,255,0.76)",
+    color: MUTED_ON_DARK,
     maxWidth: 720,
   },
 
   secondaryBtn: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -600,7 +606,7 @@ const styles = StyleSheet.create({
   },
 
   secondaryBtnText: {
-    fontWeight: "900",
+    fontWeight: "600",
     color: TEXT,
   },
 
@@ -614,28 +620,29 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 220,
-    backgroundColor: DARK_CARD,
+    backgroundColor: CARD,
     borderWidth: 1,
-    borderColor: DARK_BORDER,
+    borderColor: BORDER,
     borderRadius: 16,
     padding: 16,
     shadowColor: "#000",
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
 
   statLabel: {
-    fontSize: 12,
-    color: "#A3A3A3",
-    fontWeight: "800",
+    fontSize: 13,
+    color: MUTED,
+    fontWeight: "500",
   },
 
   statValue: {
     marginTop: 8,
     fontSize: 24,
     fontWeight: "900",
-    color: GOLD_BRIGHT,
+    color: TEXT,
   },
 
   searchWrap: {
@@ -646,7 +653,7 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: "center",
     marginBottom: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
   },
 
   search: {
@@ -662,16 +669,16 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: DARK_BORDER,
+    borderColor: BORDER,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: "#1C1C1C",
+    backgroundColor: CARD_ALT,
   },
 
   th: {
-    fontWeight: "800",
-    fontSize: 12,
-    color: "#A3A3A3",
+    fontWeight: "500",
+    fontSize: 13,
+    color: MUTED,
   },
 
   tr: {
@@ -680,17 +687,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderColor: DARK_BORDER,
-    backgroundColor: DARK_CARD,
+    borderColor: BORDER,
+    backgroundColor: CARD,
   },
 
   trStriped: {
-    backgroundColor: "#1C1C1C",
+    backgroundColor: CARD_ALT,
   },
 
   td: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+    color: TEXT,
+    fontWeight: "600",
     fontSize: 13,
   },
 
@@ -700,43 +707,43 @@ const styles = StyleSheet.create({
   },
 
   empty: {
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontWeight: "600",
+    color: TEXT,
   },
 
   emptySub: {
     marginTop: 6,
-    color: "#A3A3A3",
+    color: MUTED,
   },
 
   bannerError: {
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
+    borderColor: DANGER_BR,
+    backgroundColor: DANGER_BG,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
 
   bannerErrorText: {
-    color: "#991b1b",
-    fontWeight: "800",
+    color: DANGER,
+    fontWeight: "700",
   },
 
   bannerSuccess: {
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "#bbf7d0",
-    backgroundColor: "#f0fdf4",
+    backgroundColor: SUCCESS_BG,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
 
   bannerSuccessText: {
-    color: "#166534",
-    fontWeight: "800",
+    color: SUCCESS,
+    fontWeight: "700",
   },
 
   modalBackdrop: {
@@ -750,7 +757,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 720,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: BORDER,

@@ -26,10 +26,10 @@ const PALETTE = {
   gold: theme.colors.gold,
   goldDark: theme.colors.goldDark,
   goldSoft: theme.colors.goldSoft,
-  white: theme.colors.surfaceLight,
-  panel: theme.colors.bgSoft,
-  canvas: theme.colors.bg,
-  border: theme.colors.borderLight,
+  white: theme.colors.sidebar,       // #ffffff
+  panel: theme.colors.cardAlt,       // #fdfaf3
+  canvas: theme.colors.bg,           // #f7f5ef
+  border: theme.colors.border,       // #e6dcc6
   text: theme.colors.ink,
   textMuted: theme.colors.muted,
 };
@@ -342,10 +342,10 @@ const styles = StyleSheet.create({
   logoWrap: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: PALETTE.border,
-    backgroundColor: "#FFF8E8",
+    backgroundColor: theme.colors.cardAlt,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -388,10 +388,10 @@ const styles = StyleSheet.create({
 
   roleCard: {
     minHeight: 54,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: PALETTE.border,
-    backgroundColor: "#FBF7EC",
+    backgroundColor: theme.colors.goldSoft,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 16,
@@ -429,30 +429,31 @@ const styles = StyleSheet.create({
   },
 
   navItemActive: {
-    backgroundColor: "#FBF4E2",
-    borderColor: PALETTE.border,
+    backgroundColor: theme.colors.goldSoft,
+    borderColor: theme.colors.border,
   },
 
   navIconWrap: {
     width: 32,
     height: 32,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
 
   navIconWrapActive: {
-    backgroundColor: "#F5E6B8",
+    backgroundColor: theme.colors.gold2,
   },
 
   navText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "500",
     color: PALETTE.textMuted,
   },
 
   navTextActive: {
     color: PALETTE.goldDark,
+    fontWeight: "600",
   },
 
   sidebarFooter: {
@@ -482,8 +483,9 @@ const styles = StyleSheet.create({
   },
 
   pageTitle: {
-    fontSize: 22,
-    fontWeight: "900",
+    fontSize: 20,
+    fontWeight: "600",
+    letterSpacing: -0.3,
     color: PALETTE.text,
   },
 

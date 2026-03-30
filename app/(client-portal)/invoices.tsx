@@ -4,15 +4,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#FFFFFF";
-const CARD = "#111111";
-const CARD_SOFT = "#1C1C1C";
-const BORDER = "rgba(212,175,55,0.22)";
-const GOLD = "#D4AF37";
-const TEXT_ON_DARK = "#FFFFFF";
-const MUTED_ON_DARK = "#A3A3A3";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 type Invoice = {
   id: string;
@@ -238,38 +244,38 @@ const styles = StyleSheet.create({
   backText: { fontSize: 14, fontWeight: "700", color: TEXT },
   pageTitle: { fontSize: 26, fontWeight: "900", color: TEXT },
 
-  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10 },
-  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED_ON_DARK },
+  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED },
 
-  rowCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  rowTitle: { fontSize: 14, fontWeight: "900", color: TEXT_ON_DARK },
+  rowCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  rowTitle: { fontSize: 14, fontWeight: "900", color: TEXT },
   invLeft: { flex: 1, gap: 2 },
   invAmount: { fontSize: 13, fontWeight: "700", color: GOLD },
   chip: { borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },
   chipText: { fontSize: 11, fontWeight: "900" },
 
-  detailCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 8 },
+  detailCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 8, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   detailHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  detailTitle: { flex: 1, fontSize: 20, fontWeight: "900", color: TEXT_ON_DARK },
-  dueDate: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
+  detailTitle: { flex: 1, fontSize: 20, fontWeight: "900", color: TEXT },
+  dueDate: { fontSize: 13, fontWeight: "700", color: MUTED },
 
   section: { gap: 8 },
   sectionTitle: { fontSize: 13, fontWeight: "900", color: TEXT, textTransform: "uppercase", letterSpacing: 0.8 },
 
   lineItemRow: { backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   lineItemLeft: { flex: 1, gap: 2 },
-  lineDesc: { fontSize: 13, fontWeight: "700", color: TEXT_ON_DARK },
-  lineQty: { fontSize: 12, fontWeight: "600", color: MUTED_ON_DARK },
+  lineDesc: { fontSize: 13, fontWeight: "700", color: TEXT },
+  lineQty: { fontSize: 12, fontWeight: "600", color: MUTED },
   lineAmount: { fontSize: 14, fontWeight: "900", color: GOLD },
 
-  totalsCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, gap: 10 },
+  totalsCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, gap: 10, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   totalRowFinal: { borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 10, marginTop: 2 },
-  totalLabel: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
-  totalValue: { fontSize: 13, fontWeight: "700", color: TEXT_ON_DARK },
-  totalLabelFinal: { fontSize: 15, fontWeight: "900", color: TEXT_ON_DARK },
+  totalLabel: { fontSize: 13, fontWeight: "700", color: MUTED },
+  totalValue: { fontSize: 13, fontWeight: "700", color: TEXT },
+  totalLabelFinal: { fontSize: 15, fontWeight: "900", color: TEXT },
   totalValueFinal: { fontSize: 18, fontWeight: "900", color: GOLD },
 
-  payNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "#FFFDF8", borderRadius: 12, borderWidth: 1, borderColor: "#EDE8DA", padding: 14 },
+  payNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: CARD_ALT, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 14 },
   payNoteText: { flex: 1, fontSize: 13, fontWeight: "600", color: MUTED, lineHeight: 20 },
 });

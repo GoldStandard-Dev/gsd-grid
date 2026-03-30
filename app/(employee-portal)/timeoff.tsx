@@ -16,16 +16,22 @@ import { useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 import { getUserOrgId } from "../../src/lib/auth";
 
-const PAGE_BG = "#FFFFFF";
-const CARD = "#111111";
-const CARD_SOFT = "#1C1C1C";
-const BORDER = "rgba(212,175,55,0.22)";
-const BORDER_LIGHT = "#EDE8DA";
-const GOLD = "#D4AF37";
-const TEXT_ON_DARK = "#FFFFFF";
-const MUTED_ON_DARK = "#A3A3A3";
-const TEXT = "#111111";
-const MUTED = "#6B6B6B";
+const PAGE_BG   = "#f7f5ef";
+const CARD      = "#ffffff";
+const CARD_ALT  = "#fdfaf3";
+const DARK_CARD = "#1f1f1f";
+const BORDER    = "#e6dcc6";
+const BORDER_LIGHT = "#e6dcc6";
+const GOLD      = "#c9a227";
+const GOLD_SOFT = "#e8d9a8";
+const GOLD_DARK = "#a8841a";
+const TEXT      = "#1a1a1a";
+const MUTED     = "#6b6b6b";
+const MUTED_ON_DARK = "#a3a3a3";
+const DANGER    = "#b42318";
+const DANGER_BG = "#fee4e2";
+const SUCCESS   = "#166534";
+const SUCCESS_BG = "#dcfce7";
 
 type Request = {
   id: string;
@@ -242,35 +248,35 @@ const styles = StyleSheet.create({
   backText: { fontSize: 14, fontWeight: "700", color: TEXT },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pageTitle: { fontSize: 26, fontWeight: "900", color: TEXT },
-  addBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: GOLD, borderRadius: 12, borderWidth: 1, borderColor: "#B8962E", paddingHorizontal: 14, paddingVertical: 8 },
-  addBtnText: { fontSize: 13, fontWeight: "900", color: "#111" },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: GOLD, borderRadius: 12, borderWidth: 1, borderColor: GOLD_DARK, paddingHorizontal: 14, paddingVertical: 8 },
+  addBtnText: { fontSize: 13, fontWeight: "900", color: "#1a1a1a" },
 
-  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10 },
-  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED_ON_DARK },
+  emptyCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 32, alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  emptyText: { fontSize: 14, fontWeight: "700", color: MUTED },
 
-  reqCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, gap: 6 },
+  reqCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 16, gap: 6, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   reqHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  reqType: { fontSize: 14, fontWeight: "900", color: TEXT_ON_DARK },
-  reqDates: { fontSize: 13, fontWeight: "700", color: MUTED_ON_DARK },
-  reqNotes: { fontSize: 13, fontWeight: "600", color: MUTED_ON_DARK, fontStyle: "italic" },
+  reqType: { fontSize: 14, fontWeight: "900", color: TEXT },
+  reqDates: { fontSize: 13, fontWeight: "700", color: MUTED },
+  reqNotes: { fontSize: 13, fontWeight: "600", color: MUTED, fontStyle: "italic" },
   statusChip: { borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },
   statusChipText: { fontSize: 11, fontWeight: "900" },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  modal: { backgroundColor: "#FFFDF8", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, gap: 10 },
+  modal: { backgroundColor: CARD, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, gap: 10 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   modalTitle: { fontSize: 18, fontWeight: "900", color: TEXT },
-  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#F0EBE0", alignItems: "center", justifyContent: "center" },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: CARD_ALT, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center" },
 
   fieldLabel: { fontSize: 12, fontWeight: "900", color: MUTED, textTransform: "uppercase", letterSpacing: 0.8 },
   typeRow: { flexDirection: "row", gap: 8 },
   typeChip: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: BORDER_LIGHT, alignItems: "center" },
-  typeChipActive: { backgroundColor: GOLD, borderColor: "#B8962E" },
+  typeChipActive: { backgroundColor: GOLD_SOFT, borderColor: GOLD },
   typeChipText: { fontSize: 12, fontWeight: "900", color: MUTED },
-  typeChipTextActive: { color: "#111" },
+  typeChipTextActive: { color: "#1a1a1a" },
 
-  input: { backgroundColor: "#FFFFFF", borderRadius: 12, borderWidth: 1, borderColor: BORDER_LIGHT, padding: 12, fontSize: 14, fontWeight: "600", color: TEXT },
-  submitBtn: { backgroundColor: GOLD, borderRadius: 14, borderWidth: 1, borderColor: "#B8962E", minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 4, shadowColor: GOLD, shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  submitBtnText: { fontSize: 15, fontWeight: "900", color: "#111" },
+  input: { backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: BORDER_LIGHT, padding: 12, fontSize: 14, fontWeight: "600", color: TEXT },
+  submitBtn: { backgroundColor: GOLD, borderRadius: 14, borderWidth: 1, borderColor: GOLD_DARK, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 4, shadowColor: GOLD, shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  submitBtnText: { fontSize: 15, fontWeight: "900", color: "#1a1a1a" },
 });
