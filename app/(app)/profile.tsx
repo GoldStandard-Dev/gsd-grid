@@ -423,7 +423,7 @@ export default function ProfilePage() {
   );
 }
 
-const PAGE_BG = "#f7f3ea";
+const PAGE_BG = "#FFFFFF";
 const CARD_BG = "#fffdf8";
 const BORDER = "#e4d6b2";
 const GOLD = "#c9a227";

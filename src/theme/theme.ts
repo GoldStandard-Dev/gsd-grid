@@ -4,7 +4,7 @@ export const theme = {
   colors: {
     // Page / backgrounds
     bg: "#FFFFFF",          // white canvas
-    bgSoft: "#F7F4ED",      // warm off-white page padding
+    bgSoft: "#FFFFFF",      // page background (white)
     surface: "#111111",     // black card (primary card background)
     surfaceSoft: "#1C1C1C", // slightly lighter black for nested rows
     surfaceLight: "#FFFDF8",// light card variant (modals, forms)

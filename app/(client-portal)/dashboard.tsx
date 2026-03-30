@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#F7F4ED";
+const PAGE_BG = "#FFFFFF";
 const CARD = "#111111";
 const BORDER = "rgba(212,175,55,0.22)";
 const GOLD = "#D4AF37";

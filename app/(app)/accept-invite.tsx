@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import Screen from "../../src/components/Screen";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#f7f3ea";
+const PAGE_BG = "#FFFFFF";
 const CARD_BG = "#fffdf8";
 const BORDER = "#e4d6b2";
 const BORDER_SOFT = "#dcc89a";

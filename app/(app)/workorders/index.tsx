@@ -45,7 +45,7 @@ const REVIEW_ROLES = [
   "office_admin",
 ] as const;
 
-const PAGE_BG = "#F7F4ED";
+const PAGE_BG = "#FFFFFF";
 const CARD_BG = "#FFFFFF";
 const CARD_WHITE = "#FFFFFF";
 const BORDER = "#EDE8DA";

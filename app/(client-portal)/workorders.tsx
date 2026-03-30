@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#F7F4ED";
+const PAGE_BG = "#FFFFFF";
 const CARD = "#111111";
 const CARD_SOFT = "#1C1C1C";
 const BORDER = "rgba(212,175,55,0.22)";

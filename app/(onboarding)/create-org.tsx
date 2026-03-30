@@ -5,7 +5,7 @@ import Screen from "../../src/components/Screen";
 import { createOrganizationForCurrentUser, getUserOrgId } from "../../src/lib/auth";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#F7F4ED";
+const PAGE_BG = "#FFFFFF";
 const CARD_BG = "#FFFFFF";
 const BORDER = "#EDE8DA";
 const BORDER_SOFT = "rgba(212,175,55,0.22)";
