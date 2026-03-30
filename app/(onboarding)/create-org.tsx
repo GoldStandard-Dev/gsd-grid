@@ -5,14 +5,14 @@ import Screen from "../../src/components/Screen";
 import { createOrganizationForCurrentUser, getUserOrgId } from "../../src/lib/auth";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const PAGE_BG = "#F7F4ED";
+const CARD_BG = "#FFFFFF";
+const BORDER = "#EDE8DA";
+const BORDER_SOFT = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
+const MUTED = "#6B6B6B";
 const DANGER = "#9f3b2f";
 const DANGER_BG = "#fff3ef";
 const DANGER_BORDER = "#efc8bc";
@@ -253,10 +253,10 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 22,
     shadowColor: "#000",
     shadowOpacity: 0.04,
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
 
   title: {
     marginTop: 6,
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 32,
     lineHeight: 36,
     fontWeight: "900",
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
 
   subtitle: {
     marginTop: 6,
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "700",
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
 
   divider: {
     height: 1,
-    backgroundColor: "#efe4c8",
+    backgroundColor: "rgba(212,175,55,0.22)",
     marginTop: 16,
     marginBottom: 18,
   },
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -312,10 +312,10 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
+    borderColor: "#D4AF37",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
-    color: TEXT,
+    color: "#111111",
     fontSize: 15,
     fontWeight: "700",
   },
@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 18,
-    shadowColor: "#c9a227",
+    shadowColor: "#D4AF37",
     shadowOpacity: 0.24,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   },
 
   primaryBtnText: {
-    color: TEXT,
+    color: "#111111",
     fontSize: 14,
     fontWeight: "900",
   },

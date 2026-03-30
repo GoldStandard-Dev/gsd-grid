@@ -45,17 +45,17 @@ const REVIEW_ROLES = [
   "office_admin",
 ] as const;
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const CARD_WHITE = "#ffffff";
-const BORDER = "#e4d6b2";
-const BORDER_STRONG = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const GOLD_SOFT = "#f5e6b8";
+const PAGE_BG = "#F7F4ED";
+const CARD_BG = "#FFFFFF";
+const CARD_WHITE = "#FFFFFF";
+const BORDER = "#EDE8DA";
+const BORDER_STRONG = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
+const GOLD_SOFT = "#FFF4D6";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#8b7a60";
+const MUTED = "#6B6B6B";
+const MUTED_2 = "#6B6B6B";
 const HERO_BG = "#111111";
 
 function canCreateOrReview(role: string) {
@@ -557,7 +557,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_WHITE,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
   quickActionPrimary: {
     backgroundColor: GOLD_BRIGHT,
     borderColor: GOLD,
-    shadowColor: "#c9a227",
+    shadowColor: "#D4AF37",
     shadowOpacity: 0.22,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
@@ -693,9 +693,9 @@ const styles = StyleSheet.create({
   statCard: {
     minWidth: 220,
     flex: 1,
-    backgroundColor: CARD_WHITE,
+    backgroundColor: "#111111",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     borderRadius: 18,
     padding: 18,
     shadowColor: "#000",
@@ -705,7 +705,7 @@ const styles = StyleSheet.create({
   },
 
   statLabel: {
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -714,7 +714,7 @@ const styles = StyleSheet.create({
 
   statValue: {
     marginTop: 8,
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 30,
     lineHeight: 34,
     fontWeight: "900",
@@ -722,14 +722,14 @@ const styles = StyleSheet.create({
 
   statSubtitle: {
     marginTop: 6,
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 12.5,
     lineHeight: 18,
     fontWeight: "700",
   },
 
   controlsCard: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 22,
@@ -786,16 +786,16 @@ const styles = StyleSheet.create({
 
   divider: {
     height: 1,
-    backgroundColor: "#efe4c8",
+    backgroundColor: "#EDE8DA",
   },
 
   searchWrap: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#D4AF37",
     borderRadius: 16,
     paddingHorizontal: 14,
-    backgroundColor: "#fffaf0",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -850,9 +850,9 @@ const styles = StyleSheet.create({
   },
 
   tableCard: {
-    backgroundColor: CARD_WHITE,
+    backgroundColor: "#111111",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     borderRadius: 22,
     padding: 18,
     gap: 14,
@@ -879,13 +879,13 @@ const styles = StyleSheet.create({
   },
 
   empty: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontWeight: "900",
     fontSize: 18,
   },
 
   emptySub: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontWeight: "700",
     fontSize: 13,
     textAlign: "center",
@@ -896,16 +896,16 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_WHITE,
+    borderColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#111111",
     minWidth: 980,
   },
 
   tableHead: {
     minHeight: 48,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#1C1C1C",
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: "rgba(212,175,55,0.22)",
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -913,7 +913,7 @@ const styles = StyleSheet.create({
   },
 
   th: {
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontWeight: "900",
     fontSize: 12,
     textTransform: "uppercase",
@@ -927,11 +927,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: 1,
-    borderTopColor: "#f3ead3",
+    borderTopColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#111111",
   },
 
   trStriped: {
-    backgroundColor: "#fffcf6",
+    backgroundColor: "#1C1C1C",
   },
 
   trPressed: {
@@ -939,7 +940,7 @@ const styles = StyleSheet.create({
   },
 
   td: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 13,
   },

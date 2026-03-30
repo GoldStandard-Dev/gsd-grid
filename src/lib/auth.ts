@@ -85,6 +85,12 @@ export async function createOrganizationForCurrentUser(orgName: string) {
     return { ok: false as const, error: member.error.message };
   }
 
+  // 🔥 Create default organization settings
+  await supabase.from("organization_settings").insert({
+    org_id: orgId,
+    company_name: orgName,
+  });
+
   // 🔥 Log activity (non-blocking)
   await supabase.from("activity_log").insert({
     org_id: orgId,

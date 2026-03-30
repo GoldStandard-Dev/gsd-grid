@@ -1,136 +1,344 @@
 import { useState } from "react";
 import { Link, useRouter } from "expo-router";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import Screen from "../../src/components/Screen";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
-const DANGER = "#9f3b2f";
-const DANGER_BG = "#fff3ef";
-const DANGER_BORDER = "#efc8bc";
-const SUCCESS = "#216a43";
-const SUCCESS_BG = "#eefaf2";
-const SUCCESS_BORDER = "#b9dfc8";
+// ─── Palette ────────────────────────────────────────────────
+const BG          = "#080808";
+const SURFACE     = "#111111";
+const SURFACE2    = "#191919";
+const SURFACE3    = "#1C1C1C";
+const BORDER      = "#222222";
+const BORDER_FOCUS = "rgba(212,175,55,0.60)";
+const GOLD        = "#D4AF37";
+const GOLD_DARK   = "#B8962E";
+const WHITE       = "#FFFFFF";
+const WHITE_80    = "rgba(255,255,255,0.80)";
+const WHITE_45    = "rgba(255,255,255,0.45)";
+const WHITE_20    = "rgba(255,255,255,0.20)";
+const DANGER      = "#F87171";
+const DANGER_BG   = "rgba(239,68,68,0.10)";
+const DANGER_BR   = "rgba(239,68,68,0.22)";
+const SUCCESS     = "#4ADE80";
+const SUCCESS_BG  = "rgba(74,222,128,0.08)";
+const SUCCESS_BR  = "rgba(74,222,128,0.22)";
 
+// ─── Helpers ─────────────────────────────────────────────────
 function formatPhoneInput(value: string) {
   const digits = (value ?? "").replace(/\D/g, "").slice(0, 10);
-
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+function getStrength(p: string): { score: number; label: string; color: string } {
+  if (p.length === 0) return { score: 0, label: "", color: BORDER };
+  let score = 0;
+  if (p.length >= 8)            score++;
+  if (p.length >= 12)           score++;
+  if (/[A-Z]/.test(p))          score++;
+  if (/[0-9]/.test(p))          score++;
+  if (/[^A-Za-z0-9]/.test(p))   score++;
+
+  if (score <= 1) return { score: 1, label: "Weak",   color: "#F87171" };
+  if (score <= 2) return { score: 2, label: "Fair",   color: "#FBBF24" };
+  if (score <= 3) return { score: 3, label: "Good",   color: "#34D399" };
+  return              { score: 4, label: "Strong", color: "#4ADE80"  };
+}
+
+// ─── Step indicator ──────────────────────────────────────────
+const STEPS = [
+  { label: "Account",      icon: "person-outline"    as const },
+  { label: "Organization", icon: "business-outline"  as const },
+  { label: "Dashboard",    icon: "grid-outline"      as const },
+];
+
+function StepIndicator({ active }: { active: number }) {
+  return (
+    <View style={si.row}>
+      {STEPS.map((step, i) => {
+        const done    = i < active;
+        const current = i === active;
+        return (
+          <View key={step.label} style={si.item}>
+            {/* connector before */}
+            {i > 0 && (
+              <View style={[si.connector, done && si.connectorDone]} />
+            )}
+            {/* dot */}
+            <View style={[
+              si.dot,
+              current && si.dotCurrent,
+              done    && si.dotDone,
+            ]}>
+              {done
+                ? <Ionicons name="checkmark" size={9}  color="#0A0A0A" />
+                : <Text style={[si.dotNum, current && si.dotNumCurrent]}>{i + 1}</Text>
+              }
+            </View>
+            {/* label */}
+            <Text style={[si.label, current && si.labelCurrent, done && si.labelDone]}>
+              {step.label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const si = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 26,
+    gap: 0,
+  },
+  item: {
+    flexDirection: "column",
+    alignItems: "center",
+    position: "relative",
+    flex: 1,
+    gap: 6,
+  },
+  connector: {
+    position: "absolute",
+    top: 13,
+    left: "-50%",
+    right: "50%",
+    height: 1,
+    backgroundColor: BORDER,
+    zIndex: 0,
+  },
+  connectorDone: { backgroundColor: GOLD },
+  dot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: SURFACE2,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  dotCurrent: {
+    borderColor: GOLD,
+    backgroundColor: "rgba(212,175,55,0.12)",
+  },
+  dotDone: {
+    backgroundColor: GOLD,
+    borderColor: GOLD_DARK,
+  },
+  dotNum: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: WHITE_45,
+  },
+  dotNumCurrent: {
+    color: GOLD,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: WHITE_45,
+    textAlign: "center",
+  },
+  labelCurrent: { color: WHITE, fontWeight: "700" },
+  labelDone:    { color: GOLD,  fontWeight: "600" },
+});
+
+// ─── Field component ─────────────────────────────────────────
+type FieldProps = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  keyboard?: "default" | "email-address" | "phone-pad";
+  secure?: boolean;
+  showSecure?: boolean;
+  onToggleSecure?: () => void;
+  autoCapitalize?: "none" | "words" | "sentences";
+  hint?: string;
+  optional?: boolean;
+  onSubmit?: () => void;
+  returnKey?: "next" | "go" | "done";
+};
+
+function Field({
+  label, icon, value, onChange, placeholder,
+  keyboard, secure, showSecure, onToggleSecure,
+  autoCapitalize, hint, optional, onSubmit, returnKey,
+}: FieldProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={f.group}>
+      <View style={f.labelRow}>
+        <Text style={f.label}>{label}</Text>
+        {optional && <Text style={f.optional}>Optional</Text>}
+      </View>
+      <View style={[f.wrap, focused && f.wrapFocus]}>
+        <Ionicons
+          name={icon}
+          size={15}
+          color={focused ? GOLD : WHITE_20}
+          style={f.icon}
+        />
+        <TextInput
+          style={[f.input, secure && { flex: 1 }]}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          placeholderTextColor={WHITE_20}
+          keyboardType={keyboard ?? "default"}
+          secureTextEntry={secure && !showSecure}
+          autoCapitalize={autoCapitalize ?? "sentences"}
+          autoCorrect={false}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onSubmitEditing={onSubmit}
+          returnKeyType={returnKey ?? "next"}
+        />
+        {secure && onToggleSecure && (
+          <Pressable onPress={onToggleSecure} style={f.eyeBtn} hitSlop={8}>
+            <Ionicons
+              name={showSecure ? "eye-off-outline" : "eye-outline"}
+              size={16}
+              color={WHITE_20}
+            />
+          </Pressable>
+        )}
+      </View>
+      {hint ? <Text style={f.hint}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+const f = StyleSheet.create({
+  group: { marginBottom: 14 },
+  labelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 7,
+  },
+  label: { fontSize: 12, fontWeight: "600", color: WHITE_80 },
+  optional: { fontSize: 11, fontWeight: "400", color: WHITE_45 },
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: SURFACE2,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 13,
+    minHeight: 48,
+  },
+  wrapFocus: {
+    borderColor: BORDER_FOCUS,
+    shadowColor: GOLD,
+    shadowOpacity: 0.10,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  icon: { marginRight: 10 },
+  input: { flex: 1, fontSize: 14, fontWeight: "500", color: WHITE, paddingVertical: 0 },
+  eyeBtn: { paddingLeft: 10, paddingVertical: 4 },
+  hint: { marginTop: 5, fontSize: 11, fontWeight: "400", color: WHITE_45, lineHeight: 16 },
+});
+
+// ─── Main component ──────────────────────────────────────────
 export default function SignUp() {
   const router = useRouter();
 
-  const [fullName, setFullName] = useState("");
+  const [fullName,    setFullName]    = useState("");
+  const [jobTitle,    setJobTitle]    = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [jobTitle, setJobTitle] = useState("Owner");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [phone,       setPhone]       = useState("");
+  const [email,       setEmail]       = useState("");
+  const [password,    setPassword]    = useState("");
+  const [showPass,    setShowPass]    = useState(false);
+  const [err,         setErr]         = useState<string | null>(null);
+  const [msg,         setMsg]         = useState<string | null>(null);
+  const [loading,     setLoading]     = useState(false);
 
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const strength = getStrength(password);
 
-  async function handleCreateAccount() {
-    setErr(null);
-    setMsg(null);
+  function clear() { setErr(null); setMsg(null); }
 
-    const cleanFullName = fullName.trim();
-    const cleanCompanyName = companyName.trim();
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPhone = phone.trim();
-    const cleanJobTitle = jobTitle.trim() || "Owner";
+  async function handleCreate() {
+    clear();
 
-    if (!cleanFullName) {
-      setErr("Enter your full name.");
-      return;
-    }
+    const cleanName    = fullName.trim();
+    const cleanCompany = companyName.trim();
+    const cleanEmail   = email.trim().toLowerCase();
+    const cleanTitle   = jobTitle.trim() || "Owner";
+    const phoneDigits  = phone.replace(/\D/g, "");
 
-    if (!cleanCompanyName) {
-      setErr("Enter your company name.");
-      return;
-    }
-
-    if (!cleanEmail) {
-      setErr("Enter your email.");
-      return;
-    }
-
-    if (password.trim().length < 8) {
-      setErr("Password must be at least 8 characters.");
-      return;
-    }
-
-    const phoneDigits = cleanPhone.replace(/\D/g, "");
-    if (cleanPhone && phoneDigits.length < 10) {
-      setErr("Enter a full 10-digit phone number.");
+    if (!cleanName)              { setErr("Enter your full name."); return; }
+    if (!cleanCompany)           { setErr("Enter your company name."); return; }
+    if (!cleanEmail)             { setErr("Enter your email address."); return; }
+    if (password.length < 8)     { setErr("Password must be at least 8 characters."); return; }
+    if (phone && phoneDigits.length < 10) {
+      setErr("Enter a complete 10-digit phone number.");
       return;
     }
 
     try {
       setLoading(true);
 
-      const signUpRes = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
           data: {
-            full_name: cleanFullName,
-            company_name: cleanCompanyName,
-            phone: phoneDigits || null,
-            job_title: cleanJobTitle,
-            owner_profile_created: true,
+            full_name:    cleanName,
+            company_name: cleanCompany,
+            phone:        phoneDigits || null,
+            job_title:    cleanTitle,
           },
         },
       });
 
-      if (signUpRes.error) {
-        throw new Error(signUpRes.error.message);
-      }
+      if (error) throw new Error(error.message);
 
-      const userId = signUpRes.data.user?.id;
+      const userId    = data.user?.id;
+      const hasSession = !!data.session;
 
-      if (!userId) {
-        throw new Error("Account created, but no user ID was returned.");
-      }
-
-      const hasSession = !!signUpRes.data.session;
+      if (!userId) throw new Error("Account created but no user ID was returned.");
 
       if (!hasSession) {
-        setMsg("Account created. Check your email to confirm your account, then sign in.");
+        setMsg("Account created! Check your email to confirm, then sign in.");
         return;
       }
 
-      const profilePayload = {
-        user_id: userId,
-        full_name: cleanFullName,
-        phone: phoneDigits || null,
-        email: cleanEmail,
-        job_title: cleanJobTitle,
-        company_name: cleanCompanyName,
-        notes: "Owner profile created during signup.",
-      };
-
-      const profileRes = await supabase.from("profiles").upsert(profilePayload, { onConflict: "user_id" });
-
-      if (profileRes.error) {
-        throw new Error(profileRes.error.message);
-      }
+      // Upsert profile using correct PK `id`
+      await supabase.from("profiles").upsert({
+        id:         userId,
+        full_name:  cleanName,
+        first_name: cleanName.split(" ")[0] ?? "",
+        last_name:  cleanName.split(" ").slice(1).join(" ") || null,
+        phone:      phoneDigits || null,
+      }, { onConflict: "id" });
 
       router.replace("/(onboarding)/create-org");
-    } catch (error: any) {
-      setErr(error?.message ?? "Failed to create account.");
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to create account.");
     } finally {
       setLoading(false);
     }
@@ -138,472 +346,366 @@ export default function SignUp() {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-        <View style={styles.wrap}>
-          <View style={styles.hero}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.eyebrow}>Owner Setup</Text>
-              <Text style={styles.heroTitle}>Create your account</Text>
-              <Text style={styles.heroSubtitle}>
-                Set up your owner profile first, then create your organization and start inviting your team.
-              </Text>
-
-              <View style={styles.heroPills}>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>Owner profile included</Text>
-                </View>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>Dashboard-matched UI</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.heroPanel}>
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.page}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ── Brand mark ── */}
+          <View style={styles.brand}>
+            <View style={styles.logoWrap}>
               <Image
                 source={require("../../assets/brand/gsd-grid-icon.png")}
                 style={styles.logo}
               />
-              <Text style={styles.heroPanelLabel}>What happens next</Text>
-              <Text style={styles.heroPanelValue}>Account → Org → Team</Text>
-              <Text style={styles.heroPanelText}>
-                After signup, you will create your organization and land in the main dashboard experience.
-              </Text>
+            </View>
+            <View style={styles.brandText}>
+              <Text style={styles.appName}>GSD Grid</Text>
+              <Text style={styles.appSub}>Field Service Management</Text>
             </View>
           </View>
 
+          {/* ── Card ── */}
           <View style={styles.card}>
-            <View style={styles.cardTop}>
-              <Text style={styles.cardEyebrow}>New Workspace</Text>
-              <Text style={styles.title}>Create account</Text>
-              <Text style={styles.subtitle}>Set up your owner profile to get started.</Text>
+
+            {/* Step progress */}
+            <StepIndicator active={0} />
+
+            {/* Card header */}
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Create your account</Text>
+              <Text style={styles.cardSub}>
+                Set up your owner profile — you'll configure your organization next.
+              </Text>
             </View>
 
             <View style={styles.divider} />
 
-            <View style={styles.row}>
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Full Name</Text>
-                <TextInput
-                  value={fullName}
-                  onChangeText={(value) => {
-                    setFullName(value);
-                    if (err) setErr(null);
-                  }}
-                  placeholder="Tyler Harrington"
-                  placeholderTextColor={MUTED_2}
-                  style={styles.input}
-                />
-              </View>
+            {/* Section: Your details */}
+            <Text style={styles.sectionLabel}>Your details</Text>
 
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Job Title</Text>
-                <TextInput
-                  value={jobTitle}
-                  onChangeText={(value) => {
-                    setJobTitle(value);
-                    if (err) setErr(null);
-                  }}
-                  placeholder="Owner"
-                  placeholderTextColor={MUTED_2}
-                  style={styles.input}
-                />
-              </View>
-            </View>
+            <Field
+              label="Full name"
+              icon="person-outline"
+              value={fullName}
+              onChange={(v) => { setFullName(v); clear(); }}
+              placeholder="Tyler Harrington"
+              autoCapitalize="words"
+            />
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Company Name</Text>
-              <TextInput
-                value={companyName}
-                onChangeText={(value) => {
-                  setCompanyName(value);
-                  if (err) setErr(null);
-                }}
-                placeholder="GSD Contracting"
-                placeholderTextColor={MUTED_2}
-                style={styles.input}
-              />
-            </View>
+            <Field
+              label="Job title"
+              icon="briefcase-outline"
+              value={jobTitle}
+              onChange={(v) => { setJobTitle(v); clear(); }}
+              placeholder="Owner"
+              autoCapitalize="words"
+              optional
+            />
 
-            <View style={styles.row}>
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Phone</Text>
-                <TextInput
-                  value={phone}
-                  onChangeText={(value) => {
-                    setPhone(formatPhoneInput(value));
-                    if (err) setErr(null);
-                  }}
-                  placeholder="(704) 555-0199"
-                  placeholderTextColor={MUTED_2}
-                  keyboardType="phone-pad"
-                  style={styles.input}
-                />
-              </View>
+            {/* Section: Your company */}
+            <Text style={[styles.sectionLabel, { marginTop: 6 }]}>Your company</Text>
 
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Email</Text>
-                <TextInput
-                  value={email}
-                  onChangeText={(value) => {
-                    setEmail(value);
-                    if (err) setErr(null);
-                    if (msg) setMsg(null);
-                  }}
-                  placeholder="you@company.com"
-                  placeholderTextColor={MUTED_2}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  style={styles.input}
-                />
-              </View>
-            </View>
+            <Field
+              label="Company name"
+              icon="business-outline"
+              value={companyName}
+              onChange={(v) => { setCompanyName(v); clear(); }}
+              placeholder="Acme Contracting LLC"
+              autoCapitalize="words"
+            />
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
+            {/* Section: Contact & credentials */}
+            <Text style={[styles.sectionLabel, { marginTop: 6 }]}>Contact & credentials</Text>
+
+            <Field
+              label="Email address"
+              icon="mail-outline"
+              value={email}
+              onChange={(v) => { setEmail(v); clear(); }}
+              placeholder="you@company.com"
+              keyboard="email-address"
+              autoCapitalize="none"
+            />
+
+            <Field
+              label="Phone number"
+              icon="call-outline"
+              value={phone}
+              onChange={(v) => { setPhone(formatPhoneInput(v)); clear(); }}
+              placeholder="(704) 555-0199"
+              keyboard="phone-pad"
+              optional
+            />
+
+            {/* Password with strength */}
+            <View style={f.group}>
+              <Text style={f.label}>Password</Text>
+              <Field
+                label=""
+                icon="lock-closed-outline"
                 value={password}
-                onChangeText={(value) => {
-                  setPassword(value);
-                  if (err) setErr(null);
-                }}
+                onChange={(v) => { setPassword(v); clear(); }}
                 placeholder="Minimum 8 characters"
-                placeholderTextColor={MUTED_2}
-                secureTextEntry
-                style={styles.input}
+                secure
+                showSecure={showPass}
+                onToggleSecure={() => setShowPass((s) => !s)}
+                autoCapitalize="none"
+                hint={undefined}
               />
+              {password.length > 0 && (
+                <View style={styles.strengthRow}>
+                  {[1, 2, 3, 4].map((seg) => (
+                    <View
+                      key={seg}
+                      style={[
+                        styles.strengthSeg,
+                        { backgroundColor: strength.score >= seg ? strength.color : BORDER },
+                      ]}
+                    />
+                  ))}
+                  <Text style={[styles.strengthLabel, { color: strength.color }]}>
+                    {strength.label}
+                  </Text>
+                </View>
+              )}
             </View>
 
+            {/* Alerts */}
             {err ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{err}</Text>
+              <View style={[styles.alert, styles.alertError]}>
+                <Ionicons name="alert-circle-outline" size={14} color={DANGER} />
+                <Text style={[styles.alertText, { color: DANGER }]}>{err}</Text>
               </View>
             ) : null}
 
             {msg ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successText}>{msg}</Text>
+              <View style={[styles.alert, styles.alertSuccess]}>
+                <Ionicons name="checkmark-circle-outline" size={14} color={SUCCESS} />
+                <Text style={[styles.alertText, { color: SUCCESS }]}>{msg}</Text>
               </View>
             ) : null}
 
-            <View style={styles.actions}>
-              <Pressable
-                onPress={() => void handleCreateAccount()}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.primaryBtn,
-                  loading ? styles.primaryBtnDisabled : null,
-                  pressed ? styles.pressed : null,
-                ]}
-              >
-                <Text style={styles.primaryBtnText}>{loading ? "Creating account..." : "Create Account"}</Text>
-              </Pressable>
-            </View>
+            {/* CTA */}
+            <Pressable
+              onPress={() => void handleCreate()}
+              disabled={loading}
+              style={({ pressed }) => [
+                styles.cta,
+                loading && styles.ctaBusy,
+                pressed && !loading && styles.ctaPressed,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#0A0A0A" />
+              ) : (
+                <>
+                  <Text style={styles.ctaText}>Create Account</Text>
+                  <Ionicons name="arrow-forward" size={15} color="#0A0A0A" />
+                </>
+              )}
+            </Pressable>
 
-            <View style={styles.footerRow}>
+            {/* Legal note */}
+            <Text style={styles.legal}>
+              By creating an account you agree to our{" "}
+              <Text style={styles.legalLink}>Terms of Service</Text>
+              {" "}and{" "}
+              <Text style={styles.legalLink}>Privacy Policy</Text>.
+            </Text>
+
+            {/* Footer */}
+            <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account?</Text>
-              <Link href="/(auth)/sign-in" style={styles.footerLink}>
-                Sign in
-              </Link>
+              <Link href="/(auth)/sign-in" style={styles.footerLink}>Sign in</Link>
             </View>
           </View>
-        </View>
-      </ScrollView>
+
+          {/* ── Secure badge ── */}
+          <View style={styles.secureBadge}>
+            <Ionicons name="shield-checkmark-outline" size={13} color={WHITE_45} />
+            <Text style={styles.secureText}>
+              Your data is encrypted and never shared with third parties.
+            </Text>
+          </View>
+
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  kav: { flex: 1, backgroundColor: BG },
+
   page: {
     flexGrow: 1,
-    backgroundColor: PAGE_BG,
-    padding: 24,
+    backgroundColor: BG,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 64,
+    paddingBottom: 52,
   },
 
-  wrap: {
-    width: "100%",
-    maxWidth: 1120,
-    alignSelf: "center",
-    gap: 16,
-  },
-
-  hero: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: BORDER_SOFT,
-    backgroundColor: TEXT,
-    padding: 24,
+  // ── Brand ──
+  brand: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 36,
+    alignSelf: "center",
   },
-
-  heroCopy: {
-    flex: 1,
-    minWidth: 280,
+  logoWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.30)",
+    alignItems: "center",
     justifyContent: "center",
+    shadowColor: GOLD,
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
+  logo: { width: 28, height: 28, resizeMode: "contain" },
+  brandText: { gap: 2 },
+  appName: { fontSize: 20, fontWeight: "800", color: WHITE, letterSpacing: -0.2 },
+  appSub: { fontSize: 11, fontWeight: "500", color: WHITE_45, letterSpacing: 0.2 },
 
-  eyebrow: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
+  // ── Card ──
+  card: {
+    width: "100%",
+    maxWidth: 480,
+    backgroundColor: SURFACE,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 28,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 8,
+  },
+  cardHeader: { marginBottom: 22 },
+  cardTitle: {
+    fontSize: 21,
+    fontWeight: "700",
+    color: WHITE,
+    letterSpacing: -0.3,
+    marginBottom: 5,
+  },
+  cardSub: {
+    fontSize: 13,
+    fontWeight: "400",
+    color: WHITE_45,
+    lineHeight: 19,
+  },
+  divider: { height: 1, backgroundColor: BORDER, marginBottom: 20 },
+
+  // ── Section labels ──
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: WHITE_45,
     textTransform: "uppercase",
     letterSpacing: 1.2,
-    marginBottom: 10,
+    marginBottom: 12,
   },
 
-  heroTitle: {
-    color: "#ffffff",
-    fontSize: 38,
-    lineHeight: 42,
-    fontWeight: "900",
-  },
-
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
-    marginTop: 10,
-    maxWidth: 620,
-  },
-
-  heroPills: {
+  // ── Password strength ──
+  strengthRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 18,
+    alignItems: "center",
+    gap: 4,
+    marginTop: 8,
+  },
+  strengthSeg: { flex: 1, height: 2.5, borderRadius: 2 },
+  strengthLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginLeft: 4,
+    minWidth: 44,
   },
 
-  heroPill: {
-    borderRadius: 999,
+  // ── Alerts ──
+  alert: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.08)",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    marginBottom: 14,
   },
+  alertError:   { backgroundColor: DANGER_BG,  borderColor: DANGER_BR  },
+  alertSuccess: { backgroundColor: SUCCESS_BG, borderColor: SUCCESS_BR },
+  alertText: { flex: 1, fontSize: 12, fontWeight: "500", lineHeight: 17 },
 
-  heroPillText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-
-  heroPanel: {
-    width: 300,
-    minWidth: 260,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 18,
-    justifyContent: "center",
-  },
-
-  logo: {
-    width: 56,
-    height: 56,
-    resizeMode: "contain",
-    marginBottom: 16,
-  },
-
-  heroPanelLabel: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    marginBottom: 8,
-  },
-
-  heroPanelValue: {
-    color: "#ffffff",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
-  },
-
-  heroPanelText: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-  },
-
-  cardTop: {
-    gap: 6,
-  },
-
-  cardEyebrow: {
-    color: GOLD,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-  },
-
-  title: {
-    color: TEXT,
-    fontSize: 32,
-    lineHeight: 36,
-    fontWeight: "900",
-  },
-
-  subtitle: {
-    color: MUTED,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "700",
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#efe4c8",
-    marginTop: 16,
-    marginBottom: 18,
-  },
-
-  row: {
+  // ── CTA ──
+  cta: {
+    height: 50,
+    backgroundColor: GOLD,
+    borderRadius: 13,
     flexDirection: "row",
-    gap: 14,
-    flexWrap: "wrap",
-  },
-
-  field: {
-    marginBottom: 16,
-  },
-
-  halfField: {
-    flex: 1,
-    minWidth: 250,
-    marginBottom: 16,
-  },
-
-  label: {
-    color: TEXT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
-
-  input: {
-    minHeight: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    paddingHorizontal: 16,
-    color: TEXT,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  errorBox: {
-    marginTop: 2,
-    borderWidth: 1,
-    borderColor: DANGER_BORDER,
-    backgroundColor: DANGER_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  errorText: {
-    color: DANGER,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  successBox: {
-    marginTop: 2,
-    borderWidth: 1,
-    borderColor: SUCCESS_BORDER,
-    backgroundColor: SUCCESS_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  successText: {
-    color: SUCCESS,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  actions: {
-    marginTop: 18,
-  },
-
-  primaryBtn: {
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: GOLD_BRIGHT,
-    borderWidth: 1,
-    borderColor: GOLD,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
-    shadowColor: "#c9a227",
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
+    gap: 7,
+    shadowColor: GOLD,
+    shadowOpacity: 0.30,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+    marginTop: 4,
   },
+  ctaBusy:    { opacity: 0.55, shadowOpacity: 0 },
+  ctaPressed: { opacity: 0.90, transform: [{ scale: 0.985 }] },
+  ctaText: { fontSize: 14, fontWeight: "700", color: "#0A0A0A", letterSpacing: 0.1 },
 
-  primaryBtnDisabled: {
-    opacity: 0.7,
+  // ── Legal ──
+  legal: {
+    marginTop: 14,
+    fontSize: 11,
+    fontWeight: "400",
+    color: WHITE_45,
+    textAlign: "center",
+    lineHeight: 16,
   },
+  legalLink: { color: GOLD, fontWeight: "600" },
 
-  primaryBtnText: {
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-
-  footerRow: {
-    marginTop: 16,
+  // ── Footer ──
+  footer: {
     flexDirection: "row",
-    gap: 6,
-    flexWrap: "wrap",
+    justifyContent: "center",
     alignItems: "center",
+    gap: 5,
+    marginTop: 16,
   },
+  footerText: { fontSize: 12, fontWeight: "400", color: WHITE_45 },
+  footerLink: { fontSize: 12, fontWeight: "700", color: GOLD },
 
-  footerText: {
-    color: MUTED,
-    fontSize: 13,
-    fontWeight: "700",
+  // ── Secure badge ──
+  secureBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 24,
+    paddingHorizontal: 12,
   },
-
-  footerLink: {
-    color: GOLD,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  pressed: {
-    opacity: 0.92,
+  secureText: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: WHITE_45,
+    textAlign: "center",
+    flex: 1,
+    lineHeight: 15,
   },
 });

@@ -517,17 +517,17 @@ export default function Clients() {
 }
 
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const PAGE_BG = "#F7F4ED";
+const CARD_BG = "#FFFFFF";
+const BORDER = "#EDE8DA";
+const BORDER_SOFT = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
+const MUTED = "#6B6B6B";
+const MUTED_2 = "#6B6B6B";
 const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+const DARK_BORDER = "rgba(212,175,55,0.22)";
 
 
 const styles = StyleSheet.create({
@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
   },
 
   secondaryBtn: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -601,7 +601,7 @@ const styles = StyleSheet.create({
 
   secondaryBtnText: {
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   statsRow: {
@@ -614,9 +614,9 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 220,
-    backgroundColor: CARD_BG,
+    backgroundColor: DARK_CARD,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
     borderRadius: 16,
     padding: 16,
     shadowColor: "#000",
@@ -627,7 +627,7 @@ const styles = StyleSheet.create({
 
   statLabel: {
     fontSize: 12,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
     fontWeight: "800",
   },
 
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 24,
     fontWeight: "900",
-    color: theme.colors.gold,
+    color: GOLD_BRIGHT,
   },
 
   searchWrap: {
@@ -646,12 +646,12 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: "center",
     marginBottom: 14,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
   },
 
   search: {
     fontSize: 14,
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   tableCard: {
@@ -662,16 +662,16 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: "#f6f6f6",
+    backgroundColor: "#1C1C1C",
   },
 
   th: {
     fontWeight: "800",
     fontSize: 12,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
   },
 
   tr: {
@@ -680,15 +680,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
+    backgroundColor: DARK_CARD,
   },
 
   trStriped: {
-    backgroundColor: "#fcfcfc",
+    backgroundColor: "#1C1C1C",
   },
 
   td: {
-    color: theme.colors.ink,
+    color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 13,
   },
@@ -700,12 +701,12 @@ const styles = StyleSheet.create({
 
   empty: {
     fontWeight: "800",
-    color: theme.colors.ink,
+    color: "#FFFFFF",
   },
 
   emptySub: {
     marginTop: 6,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
   },
 
   bannerError: {
@@ -749,7 +750,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 720,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: BORDER,
@@ -771,12 +772,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 22,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   modalSub: {
     marginTop: 4,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
   },
 
@@ -786,11 +787,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
   },
 
   closeBtnText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "800",
   },
 
@@ -841,7 +842,7 @@ const styles = StyleSheet.create({
   },
 
   fieldLabel: {
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "900",
     fontSize: 12,
     marginBottom: 6,
@@ -852,9 +853,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 12,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 12,
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "800",
   },
 
@@ -870,14 +871,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 14,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
 
   suggestionLoading: {
     paddingHorizontal: 12,
     paddingVertical: 12,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
   },
 
@@ -885,15 +886,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+    borderTopColor: "#EDE8DA",
   },
 
   suggestionItemPressed: {
-    backgroundColor: "#faf7ef",
+    backgroundColor: "#F7F4ED",
   },
 
   suggestionText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "700",
     lineHeight: 19,
   },

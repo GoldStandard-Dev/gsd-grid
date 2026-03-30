@@ -908,15 +908,15 @@ export default function Dashboard() {
   );
 }
 
-const CARD_BG = "#fffdf8";
-const PAGE_BG = "#f7f3ea";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const CARD_BG = "#FFFFFF";
+const PAGE_BG = "#F7F4ED";
+const BORDER = "#EDE8DA";
+const BORDER_SOFT = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
+const MUTED = "#6B6B6B";
+const MUTED_2 = "#6B6B6B";
 const DANGER = "#9f3b2f";
 const DANGER_BG = "#fff3ef";
 const DANGER_BORDER = "#efc8bc";
@@ -970,7 +970,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 28,
     borderWidth: 1,
-    borderColor: BORDER_SOFT,
+    borderColor: "rgba(212,175,55,0.22)",
     backgroundColor: "#111111",
     padding: 24,
     flexDirection: "row",
@@ -1049,10 +1049,10 @@ const styles = StyleSheet.create({
   },
 
   statCard: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 18,
     minHeight: 176,
     justifyContent: "space-between",
@@ -1075,7 +1075,7 @@ const styles = StyleSheet.create({
   },
 
   statLabel: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -1084,7 +1084,7 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 32,
     lineHeight: 36,
     fontWeight: "900",
@@ -1095,11 +1095,11 @@ const styles = StyleSheet.create({
     marginTop: 18,
     paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: "#efe4c8",
+    borderTopColor: "rgba(212,175,55,0.22)",
   },
 
   statFooterText: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "900",
   },
@@ -1123,9 +1123,9 @@ const styles = StyleSheet.create({
   },
 
   doughnutInner: {
-    backgroundColor: "#fff9ef",
+    backgroundColor: "#111111",
     borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.12)",
+    borderColor: "rgba(212,175,55,0.22)",
   },
 
   insightRow: {
@@ -1139,25 +1139,25 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 0,
     minWidth: 220,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 18,
   },
 
   insightCardWarning: {
-    backgroundColor: "#fff8ee",
-    borderColor: "#edd3a2",
+    backgroundColor: "#1a1400",
+    borderColor: "rgba(212,175,55,0.40)",
   },
 
   insightCardGood: {
-    backgroundColor: "#f7fff8",
-    borderColor: "#cfe5d2",
+    backgroundColor: "#001a06",
+    borderColor: "rgba(16,185,129,0.30)",
   },
 
   insightLabel: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -1166,7 +1166,7 @@ const styles = StyleSheet.create({
   },
 
   insightValue: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 28,
     lineHeight: 32,
     fontWeight: "900",
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
 
   insightSub: {
     marginTop: 8,
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "700",
@@ -1190,25 +1190,25 @@ const styles = StyleSheet.create({
   pipelineCard: {
     flex: 1.2,
     minWidth: 320,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 20,
   },
 
   quickPanel: {
     flex: 1,
     minWidth: 320,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 20,
   },
 
   sectionTitle: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 22,
     lineHeight: 26,
     fontWeight: "900",
@@ -1230,13 +1230,13 @@ const styles = StyleSheet.create({
   },
 
   pipelineLabel: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800",
   },
 
   pipelineValue: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 14,
     fontWeight: "900",
   },
@@ -1244,7 +1244,7 @@ const styles = StyleSheet.create({
   pipelineTrack: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: "#efe7d3",
+    backgroundColor: "#2A2A2A",
     overflow: "hidden",
   },
 
@@ -1262,30 +1262,30 @@ const styles = StyleSheet.create({
   actionCard: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
+    borderColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#1C1C1C",
     padding: 16,
   },
 
   actionCardPrimary: {
-    backgroundColor: "#111111",
-    borderColor: "#111111",
+    backgroundColor: "#D4AF37",
+    borderColor: "#D4AF37",
   },
 
   actionCardTitle: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 16,
     lineHeight: 20,
     fontWeight: "900",
   },
 
   actionCardTitlePrimary: {
-    color: "#FFFFFF",
+    color: "#111111",
   },
 
   actionCardSubtitle: {
     marginTop: 8,
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "700",
@@ -1304,10 +1304,10 @@ const styles = StyleSheet.create({
   activityCard: {
     flex: 1.2,
     minWidth: 360,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 20,
   },
 
@@ -1329,28 +1329,28 @@ const styles = StyleSheet.create({
   lastCountPill: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fff8ea",
+    borderColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#1C1C1C",
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
 
   lastCountPillText: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 12,
     fontWeight: "900",
   },
 
   divider: {
     height: 1,
-    backgroundColor: "#efe4c8",
+    backgroundColor: "rgba(212,175,55,0.22)",
     marginTop: 16,
     marginBottom: 10,
   },
 
   sep: {
     height: 1,
-    backgroundColor: "#f1e6cf",
+    backgroundColor: "rgba(212,175,55,0.12)",
     marginVertical: 2,
   },
 
@@ -1361,7 +1361,7 @@ const styles = StyleSheet.create({
   },
 
   activityRowStriped: {
-    backgroundColor: "#fffcf5",
+    backgroundColor: "#1C1C1C",
   },
 
   activityRowPressed: {
@@ -1419,7 +1419,7 @@ const styles = StyleSheet.create({
 
   activityTitle: {
     flex: 1,
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "900",
@@ -1433,13 +1433,13 @@ const styles = StyleSheet.create({
   },
 
   activityWhere: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 12,
     fontWeight: "800",
   },
 
   activityMeta: {
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "700",
@@ -1453,14 +1453,14 @@ const styles = StyleSheet.create({
   },
 
   emptyTitle: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "900",
     marginBottom: 8,
   },
 
   empty: {
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 21,
@@ -1475,15 +1475,15 @@ const styles = StyleSheet.create({
   },
 
   infoCard: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     padding: 20,
   },
 
   sideTitle: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 20,
     lineHeight: 24,
     fontWeight: "900",
@@ -1494,8 +1494,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
+    borderColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#1C1C1C",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1511,7 +1511,7 @@ const styles = StyleSheet.create({
   },
 
   quickActionText: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "900",
   },
@@ -1544,20 +1544,20 @@ const styles = StyleSheet.create({
   notificationEmptyWrap: {
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
+    borderColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#1C1C1C",
     padding: 16,
   },
 
   notificationEmptyTitle: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 8,
   },
 
   notificationEmptyText: {
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "700",
@@ -1566,9 +1566,9 @@ const styles = StyleSheet.create({
   notificationList: {
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     overflow: "hidden",
-    backgroundColor: "#fffaf0",
+    backgroundColor: "#1C1C1C",
   },
 
   notificationRow: {
@@ -1581,7 +1581,7 @@ const styles = StyleSheet.create({
 
   notificationRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#f1e6cf",
+    borderBottomColor: "rgba(212,175,55,0.22)",
   },
 
   notificationCopy: {
@@ -1603,14 +1603,14 @@ const styles = StyleSheet.create({
 
   notificationTitle: {
     flex: 1,
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "900",
   },
 
   notificationMessage: {
     marginTop: 6,
-    color: MUTED_2,
+    color: "#A3A3A3",
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "700",
@@ -1618,7 +1618,7 @@ const styles = StyleSheet.create({
 
   notificationMeta: {
     marginTop: 6,
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 11,
     fontWeight: "800",
   },
@@ -1626,10 +1626,10 @@ const styles = StyleSheet.create({
   markReadBtn: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: "#fffdf8",
+    backgroundColor: "#2A2A2A",
   },
 
   markReadBtnText: {
@@ -1642,11 +1642,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    backgroundColor: "#f5efe0",
+    backgroundColor: "#2A2A2A",
   },
 
   readPillText: {
-    color: MUTED,
+    color: "#A3A3A3",
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",

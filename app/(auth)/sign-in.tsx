@@ -1,100 +1,99 @@
 import { useMemo, useState } from "react";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import Screen from "../../src/components/Screen";
 import { getUserOrgId, signInWithEmail } from "../../src/lib/auth";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
-const DANGER = "#9f3b2f";
-const DANGER_BG = "#fff3ef";
-const DANGER_BORDER = "#efc8bc";
-const SUCCESS = "#216a43";
-const SUCCESS_BG = "#eefaf2";
-const SUCCESS_BORDER = "#b9dfc8";
+// ─── Palette ────────────────────────────────────────────────
+const BG         = "#080808";
+const SURFACE    = "#111111";
+const SURFACE2   = "#191919";
+const BORDER     = "#222222";
+const BORDER_FOCUS = "rgba(212,175,55,0.60)";
+const GOLD       = "#D4AF37";
+const GOLD_DARK  = "#B8962E";
+const GOLD_DIM   = "rgba(212,175,55,0.18)";
+const WHITE      = "#FFFFFF";
+const WHITE_80   = "rgba(255,255,255,0.80)";
+const WHITE_45   = "rgba(255,255,255,0.45)";
+const WHITE_20   = "rgba(255,255,255,0.20)";
+const DANGER     = "#F87171";
+const DANGER_BG  = "rgba(239,68,68,0.10)";
+const DANGER_BR  = "rgba(239,68,68,0.22)";
+const SUCCESS    = "#4ADE80";
+const SUCCESS_BG = "rgba(74,222,128,0.08)";
+const SUCCESS_BR = "rgba(74,222,128,0.22)";
 
 export default function SignIn() {
   const router = useRouter();
   const params = useLocalSearchParams<{ redirectTo?: string }>();
 
-  const redirectTo = useMemo(() => {
-    return typeof params.redirectTo === "string" ? params.redirectTo : "";
-  }, [params.redirectTo]);
+  const redirectTo = useMemo(
+    () => (typeof params.redirectTo === "string" ? params.redirectTo : ""),
+    [params.redirectTo]
+  );
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const [email,      setEmail]      = useState("");
+  const [password,   setPassword]   = useState("");
+  const [showPass,   setShowPass]   = useState(false);
+  const [focusEmail, setFocusEmail] = useState(false);
+  const [focusPass,  setFocusPass]  = useState(false);
+  const [err,        setErr]        = useState<string | null>(null);
+  const [msg,        setMsg]        = useState<string | null>(null);
+  const [loading,    setLoading]    = useState(false);
+  const [resetting,  setResetting]  = useState(false);
 
+  // ─── Routing ─────────────────────────────────────────────
   async function routeAfterSignIn() {
     const { data: authData, error: authError } = await supabase.auth.getUser();
-
-    if (authError) {
-      throw new Error(authError.message);
-    }
-
+    if (authError) throw new Error(authError.message);
     const user = authData.user;
+    if (!user) throw new Error("Sign-in succeeded but no user was found.");
 
-    if (!user) {
-      throw new Error("Sign-in succeeded, but no active user was found.");
-    }
-
-    if (redirectTo) {
-      if (typeof window !== "undefined") {
-        window.location.href = redirectTo;
-        return;
-      }
+    if (redirectTo && typeof window !== "undefined") {
+      window.location.href = redirectTo;
+      return;
     }
 
     const orgId = await getUserOrgId(user.id);
-
     if (!orgId) {
       router.replace("/(onboarding)/create-org");
       return;
     }
-
     router.replace("/(app)/dashboard");
   }
 
+  // ─── Handlers ────────────────────────────────────────────
   async function handleSignIn() {
     setErr(null);
     setMsg(null);
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail    = email.trim().toLowerCase();
     const cleanPassword = password;
 
-    if (!cleanEmail) {
-      setErr("Enter your email.");
-      return;
-    }
-
-    if (!cleanPassword) {
-      setErr("Enter your password.");
-      return;
-    }
+    if (!cleanEmail)    { setErr("Enter your email address."); return; }
+    if (!cleanPassword) { setErr("Enter your password."); return; }
 
     try {
       setLoading(true);
-
       const result = await signInWithEmail(cleanEmail, cleanPassword);
-
-      if (!result.ok) {
-        throw new Error(result.error);
-      }
-
+      if (!result.ok) throw new Error(result.error);
       await routeAfterSignIn();
-    } catch (error: any) {
-      setErr(error?.message ?? "Failed to sign in.");
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to sign in.");
     } finally {
       setLoading(false);
     }
@@ -102,465 +101,462 @@ export default function SignIn() {
 
   async function handleForgotPassword() {
     const cleanEmail = email.trim().toLowerCase();
-
     setErr(null);
     setMsg(null);
 
     if (!cleanEmail) {
-      setErr("Enter your email first so we can send a reset link.");
+      setErr("Enter your email address above, then tap Forgot password.");
       return;
     }
 
     try {
       setResetting(true);
-
-      const redirectToUrl =
-        typeof window !== "undefined" ? `${window.location.origin}/(auth)/sign-in` : undefined;
+      const redirectUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/(auth)/sign-in`
+          : undefined;
 
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: redirectToUrl,
+        redirectTo: redirectUrl,
       });
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      setMsg("Password reset email sent. Check your inbox.");
-    } catch (error: any) {
-      setErr(error?.message ?? "Failed to send password reset email.");
+      if (error) throw new Error(error.message);
+      setMsg("Reset link sent — check your inbox.");
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to send reset email.");
     } finally {
       setResetting(false);
     }
   }
 
+  const busy = loading || resetting;
+
+  // ─── Render ───────────────────────────────────────────────
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-        <View style={styles.wrap}>
-          <View style={styles.hero}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.eyebrow}>GSD Grid</Text>
-              <Text style={styles.heroTitle}>Welcome back</Text>
-              <Text style={styles.heroSubtitle}>
-                Sign in to manage work orders, pricing, invoices, workforce, and daily operations.
-              </Text>
-            </View>
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.page}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
 
-            <View style={styles.heroPanel}>
+          {/* ── Brand mark ── */}
+          <View style={styles.brand}>
+            <View style={styles.logoWrap}>
               <Image
                 source={require("../../assets/brand/gsd-grid-icon.png")}
                 style={styles.logo}
               />
-              <Text style={styles.heroPanelLabel}>Secure access</Text>
-              <Text style={styles.heroPanelValue}>Owner + team portal</Text>
-              <Text style={styles.heroPanelText}>
-                Use your company email to access your organization workspace and assigned tools.
-              </Text>
+            </View>
+            <View style={styles.brandText}>
+              <Text style={styles.appName}>GSD Grid</Text>
+              <Text style={styles.appSub}>Field Service Management</Text>
             </View>
           </View>
 
+          {/* ── Card ── */}
           <View style={styles.card}>
-            <View style={styles.cardTop}>
-              <View>
-                <Text style={styles.cardEyebrow}>Account Access</Text>
-                <Text style={styles.title}>Sign in</Text>
-                <Text style={styles.subtitle}>Access your account and continue where you left off.</Text>
-              </View>
+
+            {/* Card header */}
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Welcome back</Text>
+              <Text style={styles.cardSub}>
+                Sign in to your workspace to continue.
+              </Text>
             </View>
 
             <View style={styles.divider} />
 
+            {/* Email */}
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                value={email}
-                onChangeText={(value) => {
-                  setEmail(value);
-                  if (err) setErr(null);
-                  if (msg) setMsg(null);
-                }}
-                placeholder="you@company.com"
-                placeholderTextColor={MUTED_2}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoCorrect={false}
-                style={styles.input}
-              />
+              <Text style={styles.label}>Email address</Text>
+              <View style={[styles.inputWrap, focusEmail && styles.inputFocus]}>
+                <Ionicons
+                  name="mail-outline"
+                  size={16}
+                  color={focusEmail ? GOLD : WHITE_20}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={(v) => { setEmail(v); setErr(null); setMsg(null); }}
+                  placeholder="you@company.com"
+                  placeholderTextColor={WHITE_20}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                  onFocus={() => setFocusEmail(true)}
+                  onBlur={() => setFocusEmail(false)}
+                />
+              </View>
             </View>
 
+            {/* Password */}
             <View style={styles.field}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Password</Text>
-
                 <Pressable
                   onPress={handleForgotPassword}
-                  disabled={resetting || loading}
-                  style={({ pressed }) => [styles.linkBtn, pressed ? styles.pressed : null]}
+                  disabled={busy}
+                  hitSlop={8}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
                 >
-                  <Text style={styles.forgotLink}>
-                    {resetting ? "Sending reset..." : "Forgot password?"}
+                  <Text style={styles.forgotText}>
+                    {resetting ? "Sending…" : "Forgot password?"}
                   </Text>
                 </Pressable>
               </View>
-
-              <TextInput
-                value={password}
-                onChangeText={(value) => {
-                  setPassword(value);
-                  if (err) setErr(null);
-                }}
-                placeholder="Enter password"
-                placeholderTextColor={MUTED_2}
-                secureTextEntry
-                style={styles.input}
-                onSubmitEditing={() => {
-                  if (!loading && !resetting) {
-                    void handleSignIn();
-                  }
-                }}
-              />
+              <View style={[styles.inputWrap, focusPass && styles.inputFocus]}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={16}
+                  color={focusPass ? GOLD : WHITE_20}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={password}
+                  onChangeText={(v) => { setPassword(v); setErr(null); }}
+                  placeholder="Enter your password"
+                  placeholderTextColor={WHITE_20}
+                  secureTextEntry={!showPass}
+                  onFocus={() => setFocusPass(true)}
+                  onBlur={() => setFocusPass(false)}
+                  onSubmitEditing={() => { if (!busy) void handleSignIn(); }}
+                  returnKeyType="go"
+                />
+                <Pressable
+                  onPress={() => setShowPass((s) => !s)}
+                  style={styles.eyeBtn}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={showPass ? "eye-off-outline" : "eye-outline"}
+                    size={17}
+                    color={WHITE_20}
+                  />
+                </Pressable>
+              </View>
             </View>
 
+            {/* Alert */}
             {err ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{err}</Text>
+              <View style={[styles.alert, styles.alertError]}>
+                <Ionicons name="alert-circle-outline" size={14} color={DANGER} />
+                <Text style={[styles.alertText, { color: DANGER }]}>{err}</Text>
               </View>
             ) : null}
 
             {msg ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successText}>{msg}</Text>
+              <View style={[styles.alert, styles.alertSuccess]}>
+                <Ionicons name="checkmark-circle-outline" size={14} color={SUCCESS} />
+                <Text style={[styles.alertText, { color: SUCCESS }]}>{msg}</Text>
               </View>
             ) : null}
 
-            <View style={styles.actions}>
-              <Pressable
-                onPress={() => void handleSignIn()}
-                disabled={loading || resetting}
-                style={({ pressed }) => [
-                  styles.primaryBtn,
-                  (loading || resetting) ? styles.primaryBtnDisabled : null,
-                  pressed ? styles.pressed : null,
-                ]}
-              >
-                <Text style={styles.primaryBtnText}>{loading ? "Signing in..." : "Sign In"}</Text>
-              </Pressable>
-            </View>
+            {/* CTA */}
+            <Pressable
+              onPress={() => void handleSignIn()}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.cta,
+                busy && styles.ctaBusy,
+                pressed && !busy && styles.ctaPressed,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#0A0A0A" />
+              ) : (
+                <>
+                  <Text style={styles.ctaText}>Sign In</Text>
+                  <Ionicons name="arrow-forward" size={15} color="#0A0A0A" />
+                </>
+              )}
+            </Pressable>
 
-            <View style={styles.footerRow}>
-              <Text style={styles.footerText}>Need an account?</Text>
+            {/* Footer */}
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account?</Text>
               <Link href="/(auth)/sign-up" style={styles.footerLink}>
                 Create one
               </Link>
             </View>
           </View>
-        </View>
-      </ScrollView>
+
+          {/* ── Trust row ── */}
+          <View style={styles.trust}>
+            <View style={styles.trustItem}>
+              <Ionicons name="shield-checkmark-outline" size={12} color={WHITE_45} />
+              <Text style={styles.trustText}>End-to-end encrypted</Text>
+            </View>
+            <View style={styles.trustDot} />
+            <View style={styles.trustItem}>
+              <Ionicons name="lock-closed-outline" size={12} color={WHITE_45} />
+              <Text style={styles.trustText}>SOC 2 ready</Text>
+            </View>
+            <View style={styles.trustDot} />
+            <View style={styles.trustItem}>
+              <Ionicons name="cloud-done-outline" size={12} color={WHITE_45} />
+              <Text style={styles.trustText}>99.9% uptime</Text>
+            </View>
+          </View>
+
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  kav: { flex: 1, backgroundColor: BG },
+
   page: {
     flexGrow: 1,
-    backgroundColor: PAGE_BG,
-    padding: 24,
-    justifyContent: "center",
+    backgroundColor: BG,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 72,
+    paddingBottom: 52,
   },
 
-  wrap: {
-    width: "100%",
-    maxWidth: 1120,
+  // ── Brand mark ──
+  brand: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 40,
     alignSelf: "center",
-    gap: 16,
   },
-
-  hero: {
-    borderRadius: 28,
+  logoWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: SURFACE,
     borderWidth: 1,
-    borderColor: BORDER_SOFT,
-    backgroundColor: TEXT,
-    padding: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-  },
-
-  heroCopy: {
-    flex: 1,
-    minWidth: 280,
+    borderColor: "rgba(212,175,55,0.30)",
+    alignItems: "center",
     justifyContent: "center",
+    shadowColor: GOLD,
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-
-  eyebrow: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-
-  heroTitle: {
-    color: "#ffffff",
-    fontSize: 38,
-    lineHeight: 42,
-    fontWeight: "900",
-  },
-
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
-    marginTop: 10,
-    maxWidth: 620,
-  },
-
-  heroPills: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 18,
-  },
-
-  heroPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-
-  heroPillText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-
-  heroPanel: {
-    width: 290,
-    minWidth: 260,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 18,
-    justifyContent: "center",
-  },
-
   logo: {
-    width: 56,
-    height: 56,
+    width: 28,
+    height: 28,
     resizeMode: "contain",
-    marginBottom: 16,
+  },
+  brandText: {
+    gap: 2,
+  },
+  appName: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: WHITE,
+    letterSpacing: -0.2,
+  },
+  appSub: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: WHITE_45,
+    letterSpacing: 0.2,
   },
 
-  heroPanelLabel: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    marginBottom: 8,
-  },
-
-  heroPanelValue: {
-    color: "#ffffff",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
-  },
-
-  heroPanelText: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
+  // ── Card ──
   card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: SURFACE,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: BORDER,
-    padding: 22,
+    padding: 28,
     shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 8,
   },
-
-  cardTop: {
-    gap: 6,
+  cardHeader: {
+    marginBottom: 22,
   },
-
-  cardEyebrow: {
-    color: GOLD,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-  },
-
-  title: {
-    color: TEXT,
-    fontSize: 32,
-    lineHeight: 36,
-    fontWeight: "900",
-  },
-
-  subtitle: {
-    color: MUTED,
-    fontSize: 14,
-    lineHeight: 21,
+  cardTitle: {
+    fontSize: 22,
     fontWeight: "700",
+    color: WHITE,
+    letterSpacing: -0.3,
+    marginBottom: 5,
   },
-
+  cardSub: {
+    fontSize: 13,
+    fontWeight: "400",
+    color: WHITE_45,
+    lineHeight: 19,
+  },
   divider: {
     height: 1,
-    backgroundColor: "#efe4c8",
-    marginTop: 16,
-    marginBottom: 18,
+    backgroundColor: BORDER,
+    marginBottom: 22,
   },
 
+  // ── Fields ──
   field: {
     marginBottom: 16,
   },
-
   labelRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 8,
-    flexWrap: "wrap",
+    marginBottom: 7,
   },
-
   label: {
-    color: TEXT,
     fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 8,
+    fontWeight: "600",
+    color: WHITE_80,
+    marginBottom: 7,
   },
-
-  input: {
-    minHeight: 50,
-    borderRadius: 16,
+  inputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: SURFACE2,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    paddingHorizontal: 16,
-    color: TEXT,
-    fontSize: 15,
-    fontWeight: "700",
+    paddingHorizontal: 13,
+    minHeight: 48,
+  },
+  inputFocus: {
+    borderColor: BORDER_FOCUS,
+    shadowColor: GOLD,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "500",
+    color: WHITE,
+    paddingVertical: 0,
+  },
+  eyeBtn: {
+    paddingLeft: 10,
+    paddingVertical: 4,
   },
 
-  linkBtn: {
-    borderRadius: 12,
-  },
-
-  forgotLink: {
+  // ── Forgot ──
+  forgotText: {
+    fontSize: 12,
+    fontWeight: "600",
     color: GOLD,
-    fontSize: 13,
-    fontWeight: "900",
   },
 
-  errorBox: {
-    marginTop: 2,
-    marginBottom: 2,
+  // ── Alerts ──
+  alert: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: DANGER_BORDER,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  alertError: {
     backgroundColor: DANGER_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderColor: DANGER_BR,
   },
-
-  errorText: {
-    color: DANGER,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  successBox: {
-    marginTop: 2,
-    marginBottom: 2,
-    borderWidth: 1,
-    borderColor: SUCCESS_BORDER,
+  alertSuccess: {
     backgroundColor: SUCCESS_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderColor: SUCCESS_BR,
+  },
+  alertText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
   },
 
-  successText: {
-    color: SUCCESS,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  actions: {
-    marginTop: 18,
-  },
-
-  primaryBtn: {
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: GOLD_BRIGHT,
-    borderWidth: 1,
-    borderColor: GOLD,
+  // ── CTA ──
+  cta: {
+    height: 50,
+    backgroundColor: GOLD,
+    borderRadius: 13,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
-    shadowColor: "#c9a227",
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
+    gap: 7,
+    shadowColor: GOLD,
+    shadowOpacity: 0.30,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+    marginTop: 4,
   },
-
-  primaryBtnDisabled: {
-    opacity: 0.7,
+  ctaBusy: {
+    opacity: 0.55,
+    shadowOpacity: 0,
   },
-
-  primaryBtnText: {
-    color: TEXT,
+  ctaPressed: {
+    opacity: 0.90,
+    transform: [{ scale: 0.985 }],
+  },
+  ctaText: {
     fontSize: 14,
-    fontWeight: "900",
-  },
-
-  footerRow: {
-    marginTop: 16,
-    flexDirection: "row",
-    gap: 6,
-    flexWrap: "wrap",
-    alignItems: "center",
-  },
-
-  footerText: {
-    color: MUTED,
-    fontSize: 13,
     fontWeight: "700",
+    color: "#0A0A0A",
+    letterSpacing: 0.1,
   },
 
+  // ── Footer ──
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 20,
+  },
+  footerText: {
+    fontSize: 12,
+    fontWeight: "400",
+    color: WHITE_45,
+  },
   footerLink: {
+    fontSize: 12,
+    fontWeight: "700",
     color: GOLD,
-    fontSize: 13,
-    fontWeight: "900",
   },
 
-  pressed: {
-    opacity: 0.92,
+  // ── Trust row ──
+  trust: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 28,
+  },
+  trustItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  trustText: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: WHITE_45,
+  },
+  trustDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: WHITE_20,
   },
 });

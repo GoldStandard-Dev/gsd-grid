@@ -329,17 +329,17 @@ export default function InvoicesPage() {
 }
 
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const PAGE_BG = "#F7F4ED";
+const CARD_BG = "#FFFFFF";
+const BORDER = "#EDE8DA";
+const BORDER_SOFT = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
+const MUTED = "#6B6B6B";
+const MUTED_2 = "#6B6B6B";
 const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+const DARK_BORDER = "rgba(212,175,55,0.22)";
 
 
 const styles = StyleSheet.create({
@@ -407,9 +407,9 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 180,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     borderRadius: 18,
     padding: 16,
   },
@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     fontWeight: "800",
-    color: MUTED_2,
+    color: "#A3A3A3",
   },
 
   statValue: {
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 14,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -448,9 +448,9 @@ const styles = StyleSheet.create({
 
   tableCard: {
     overflow: "hidden",
-    backgroundColor: CARD_BG,
+    backgroundColor: "#111111",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(212,175,55,0.22)",
     borderRadius: 22,
   },
 
@@ -465,18 +465,18 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: "#111111",
+    color: "#FFFFFF",
   },
 
   cardMeta: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#6B6B6B",
+    color: "#A3A3A3",
   },
 
   table: {
     borderTopWidth: 1,
-    borderTopColor: "#E8DFC7",
+    borderTopColor: "rgba(212,175,55,0.22)",
   },
 
   tableHead: {
@@ -484,31 +484,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#f5ecd3",
+    backgroundColor: "#1C1C1C",
     borderBottomWidth: 1,
-    borderBottomColor: "#E8DFC7",
+    borderBottomColor: "rgba(212,175,55,0.22)",
   },
 
   th: {
     fontSize: 12,
     fontWeight: "800",
-    color: MUTED_2,
+    color: "#A3A3A3",
   },
 
   tr: {
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderBottomColor: "#F1E7D2",
-    backgroundColor: CARD_BG,
+    borderBottomColor: "rgba(212,175,55,0.22)",
+    backgroundColor: "#111111",
   },
 
   trStriped: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#1C1C1C",
   },
 
   trPressed: {
-    backgroundColor: "#F8F1E0",
+    opacity: 0.92,
   },
 
   rowMain: {
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
   td: {
     fontSize: 13.5,
     fontWeight: "700",
-    color: "#111111",
+    color: "#FFFFFF",
   },
 
   colInvoice: {
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
   },
 
   empty: {
-    color: "#111111",
+    color: "#FFFFFF",
     fontWeight: "800",
   },
 

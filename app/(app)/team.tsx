@@ -2294,17 +2294,17 @@ export default function Team() {
 }
 
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const PAGE_BG = "#F7F4ED";
+const CARD_BG = "#FFFFFF";
+const BORDER = "#EDE8DA";
+const BORDER_SOFT = "rgba(212,175,55,0.22)";
+const GOLD = "#D4AF37";
+const GOLD_BRIGHT = "#D4AF37";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
+const MUTED = "#6B6B6B";
+const MUTED_2 = "#6B6B6B";
 const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+const DARK_BORDER = "rgba(212,175,55,0.22)";
 
 
 const styles = StyleSheet.create({
@@ -2362,9 +2362,9 @@ const styles = StyleSheet.create({
   statCard: {
     flexGrow: 1,
     minWidth: 180,
-    backgroundColor: CARD_BG,
+    backgroundColor: DARK_CARD,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
     borderRadius: 16,
     padding: 16,
     shadowColor: "#000",
@@ -2375,7 +2375,7 @@ const styles = StyleSheet.create({
 
   statLabel: {
     fontSize: 12,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
     fontWeight: "800",
   },
 
@@ -2401,19 +2401,19 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   sectionSub: {
     marginTop: 4,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
     fontSize: 12,
   },
 
   meta: {
     fontSize: 12,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
   },
 
@@ -2427,9 +2427,9 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     flexGrow: 1,
-    backgroundColor: CARD_BG,
+    backgroundColor: DARK_CARD,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
     borderRadius: 18,
     padding: 14,
   },
@@ -2456,14 +2456,14 @@ const styles = StyleSheet.create({
   },
 
   personName: {
-    color: theme.colors.ink,
+    color: "#FFFFFF",
     fontWeight: "900",
     fontSize: 14,
   },
 
   personSub: {
     marginTop: 4,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
     fontWeight: "700",
     fontSize: 12,
   },
@@ -2492,14 +2492,14 @@ const styles = StyleSheet.create({
 
   personMetaLabel: {
     fontSize: 11,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
     fontWeight: "800",
     marginBottom: 4,
   },
 
   personMetaValue: {
     fontSize: 13,
-    color: theme.colors.ink,
+    color: "#FFFFFF",
     fontWeight: "800",
   },
 
@@ -2520,23 +2520,23 @@ const styles = StyleSheet.create({
   },
 
   refreshBtn: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#1C1C1C",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: DARK_BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
 
   refreshBtnText: {
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: "#FFFFFF",
   },
 
   secondaryBtn: {
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -2548,7 +2548,7 @@ const styles = StyleSheet.create({
 
   secondaryBtnText: {
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   editBtn: {
@@ -2571,13 +2571,13 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    borderColor: DARK_BORDER,
+    backgroundColor: "#1C1C1C",
   },
 
   cancelBtnText: {
     fontWeight: "800",
-    color: theme.colors.ink,
+    color: "#FFFFFF",
     fontSize: 12,
   },
 
@@ -2606,13 +2606,13 @@ const styles = StyleSheet.create({
   },
 
   empty: {
-    color: theme.colors.ink,
+    color: "#FFFFFF",
     fontWeight: "800",
   },
 
   emptySub: {
     marginTop: 6,
-    color: theme.colors.muted,
+    color: "#A3A3A3",
     fontWeight: "700",
   },
 
@@ -2672,7 +2672,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 860,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: BORDER,
@@ -2690,12 +2690,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   modalSub: {
     marginTop: 4,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
   },
 
@@ -2705,11 +2705,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
   },
 
   closeBtnText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "800",
   },
 
@@ -2772,7 +2772,7 @@ const styles = StyleSheet.create({
 
   fieldLabel: {
     marginBottom: 6,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "800",
     fontSize: 12,
   },
@@ -2780,40 +2780,40 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#D4AF37",
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 11,
     fontSize: 14,
     fontWeight: "700",
-    color: theme.colors.ink,
-    backgroundColor: CARD_BG,
+    color: TEXT,
+    backgroundColor: "#FFFFFF",
   },
 
   selectInput: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#D4AF37",
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 11,
     justifyContent: "center",
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
   },
 
   selectInputText: {
     fontSize: 14,
     fontWeight: "700",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   selectPlaceholder: {
-    color: theme.colors.muted,
+    color: MUTED,
   },
 
   disabledInput: {
-    backgroundColor: "#f8f8f8",
-    color: theme.colors.muted,
+    backgroundColor: "#F0F0F0",
+    color: MUTED,
   },
 
   textArea: {
@@ -2828,25 +2828,25 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     borderRadius: 16,
     padding: 12,
-    backgroundColor: "#fcfcfc",
+    backgroundColor: "#FFFFFF",
   },
 
   previewName: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "900",
     fontSize: 14,
   },
 
   previewSub: {
     marginTop: 4,
-    color: theme.colors.muted,
+    color: MUTED,
     fontWeight: "700",
     fontSize: 12,
   },
 
   locationPreviewText: {
     marginTop: 8,
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "800",
     fontSize: 12,
   },
@@ -2863,24 +2863,24 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#F7F4ED",
     alignItems: "center",
     justifyContent: "center",
   },
 
   rolePillActive: {
-    backgroundColor: "#F5E6B8",
-    borderColor: GOLD,
+    backgroundColor: "#D4AF37",
+    borderColor: "#D4AF37",
   },
 
   rolePillText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontSize: 12,
     fontWeight: "800",
   },
 
   rolePillTextActive: {
-    color: theme.colors.goldDark,
+    color: "#111111",
   },
 
   permissionGrid: {
@@ -2894,7 +2894,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#F7F4ED",
     paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
@@ -2902,17 +2902,17 @@ const styles = StyleSheet.create({
 
   permissionCardActive: {
     borderColor: GOLD,
-    backgroundColor: "#fff8e7",
+    backgroundColor: "#FFF4D6",
   },
 
   permissionText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontSize: 12,
     fontWeight: "800",
   },
 
   permissionTextActive: {
-    color: theme.colors.goldDark,
+    color: "#B8962E",
   },
 
   modalActions: {
@@ -2934,7 +2934,7 @@ const styles = StyleSheet.create({
   dropdownCard: {
     width: "100%",
     maxWidth: 420,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#FFFFFF",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: BORDER,
@@ -2952,7 +2952,7 @@ const styles = StyleSheet.create({
   dropdownTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: theme.colors.ink,
+    color: TEXT,
   },
 
   stateGrid: {
@@ -2967,23 +2967,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: CARD_BG,
+    backgroundColor: "#F7F4ED",
     alignItems: "center",
     justifyContent: "center",
   },
 
   statePillActive: {
-    backgroundColor: "#F5E6B8",
-    borderColor: GOLD,
+    backgroundColor: "#D4AF37",
+    borderColor: "#D4AF37",
   },
 
   statePillText: {
-    color: theme.colors.ink,
+    color: TEXT,
     fontWeight: "900",
     fontSize: 12,
   },
 
   statePillTextActive: {
-    color: theme.colors.goldDark,
+    color: "#111111",
   },
 });

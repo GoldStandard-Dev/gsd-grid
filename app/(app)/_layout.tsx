@@ -22,14 +22,14 @@ type NavItem = {
 
 const PALETTE = {
   ink: theme.colors.ink,
-  ink2: theme.colors.ink2,
+  ink2: theme.colors.ink,
   gold: theme.colors.gold,
   goldDark: theme.colors.goldDark,
-  goldSoft: theme.colors.gold2,
-  white: theme.colors.surface,
-  panel: theme.colors.surface2,
+  goldSoft: theme.colors.goldSoft,
+  white: theme.colors.surfaceLight,
+  panel: theme.colors.bgSoft,
   canvas: theme.colors.bg,
-  border: theme.colors.border,
+  border: theme.colors.borderLight,
   text: theme.colors.ink,
   textMuted: theme.colors.muted,
 };
@@ -104,25 +104,23 @@ export default function AppLayout() {
 
         const nextRole = String(member?.role ?? "viewer") as UserRole;
 
+        // Field roles go to employee portal
+        if (nextRole === "technician" || nextRole === "field_supervisor") {
+          router.replace("/(employee-portal)/dashboard");
+          return;
+        }
+
         if (mounted) {
           setUserRole(nextRole in ROLE_PERMISSIONS ? nextRole : "viewer");
         }
 
         const { data: settings } = await supabase
           .from("organization_settings")
-          .select("*")
+          .select("company_name")
           .eq("org_id", orgId)
           .maybeSingle();
 
-        if (settings && mounted) {
-          setLabels({
-            workorders: settings.nav_label_workorders || "Work Orders",
-            pricing: settings.nav_label_pricing || "Pricing",
-            clients: settings.nav_label_clients || "Clients",
-            team: settings.nav_label_team || "Team",
-            workforce: settings.nav_label_workforce || "Workforce",
-          });
-        }
+        // Keep default labels — organization_settings doesn't have nav label columns
       } catch {
         if (mounted) {
           setUserRole("viewer");
