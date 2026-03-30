@@ -18,7 +18,7 @@ import { getUserOrgId, signInWithEmail } from "../../src/lib/auth";
 import { supabase } from "../../src/lib/supabase";
 
 // ─── Palette ────────────────────────────────────────────────
-const BG         = "#080808";
+const BG         = "#FFFFFF";
 const SURFACE    = "#111111";
 const SURFACE2   = "#191919";
 const BORDER     = "#222222";
@@ -30,6 +30,10 @@ const WHITE      = "#FFFFFF";
 const WHITE_80   = "rgba(255,255,255,0.80)";
 const WHITE_45   = "rgba(255,255,255,0.45)";
 const WHITE_20   = "rgba(255,255,255,0.20)";
+// Colors for elements rendered on white background (outside the card)
+const INK        = "#111111";
+const INK_MUTED  = "#777777";
+const INK_FAINT  = "#BBBBBB";
 const DANGER     = "#F87171";
 const DANGER_BG  = "rgba(239,68,68,0.10)";
 const DANGER_BR  = "rgba(239,68,68,0.22)";
@@ -291,17 +295,17 @@ export default function SignIn() {
           {/* ── Trust row ── */}
           <View style={styles.trust}>
             <View style={styles.trustItem}>
-              <Ionicons name="shield-checkmark-outline" size={12} color={WHITE_45} />
+              <Ionicons name="shield-checkmark-outline" size={12} color={INK_MUTED} />
               <Text style={styles.trustText}>End-to-end encrypted</Text>
             </View>
             <View style={styles.trustDot} />
             <View style={styles.trustItem}>
-              <Ionicons name="lock-closed-outline" size={12} color={WHITE_45} />
+              <Ionicons name="lock-closed-outline" size={12} color={INK_MUTED} />
               <Text style={styles.trustText}>SOC 2 ready</Text>
             </View>
             <View style={styles.trustDot} />
             <View style={styles.trustItem}>
-              <Ionicons name="cloud-done-outline" size={12} color={WHITE_45} />
+              <Ionicons name="cloud-done-outline" size={12} color={INK_MUTED} />
               <Text style={styles.trustText}>99.9% uptime</Text>
             </View>
           </View>
@@ -358,13 +362,13 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 20,
     fontWeight: "800",
-    color: WHITE,
+    color: INK,
     letterSpacing: -0.2,
   },
   appSub: {
     fontSize: 11,
     fontWeight: "500",
-    color: WHITE_45,
+    color: INK_MUTED,
     letterSpacing: 0.2,
   },
 
@@ -528,7 +532,7 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     fontWeight: "400",
-    color: WHITE_45,
+    color: INK_MUTED,
   },
   footerLink: {
     fontSize: 12,
@@ -551,12 +555,12 @@ const styles = StyleSheet.create({
   trustText: {
     fontSize: 11,
     fontWeight: "400",
-    color: WHITE_45,
+    color: INK_MUTED,
   },
   trustDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: WHITE_20,
+    backgroundColor: INK_FAINT,
   },
 });

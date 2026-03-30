@@ -17,7 +17,7 @@ import Screen from "../../src/components/Screen";
 import { supabase } from "../../src/lib/supabase";
 
 // ─── Palette ────────────────────────────────────────────────
-const BG          = "#080808";
+const BG          = "#FFFFFF";
 const SURFACE     = "#111111";
 const SURFACE2    = "#191919";
 const SURFACE3    = "#1C1C1C";
@@ -35,6 +35,10 @@ const DANGER_BR   = "rgba(239,68,68,0.22)";
 const SUCCESS     = "#4ADE80";
 const SUCCESS_BG  = "rgba(74,222,128,0.08)";
 const SUCCESS_BR  = "rgba(74,222,128,0.22)";
+// Colors for elements rendered on white background (outside the card)
+const INK         = "#111111";
+const INK_MUTED   = "#777777";
+const INK_FAINT   = "#BBBBBB";
 
 // ─── Helpers ─────────────────────────────────────────────────
 function formatPhoneInput(value: string) {
@@ -527,7 +531,7 @@ export default function SignUp() {
 
           {/* ── Secure badge ── */}
           <View style={styles.secureBadge}>
-            <Ionicons name="shield-checkmark-outline" size={13} color={WHITE_45} />
+            <Ionicons name="shield-checkmark-outline" size={13} color={INK_MUTED} />
             <Text style={styles.secureText}>
               Your data is encrypted and never shared with third parties.
             </Text>
@@ -576,8 +580,8 @@ const styles = StyleSheet.create({
   },
   logo: { width: 28, height: 28, resizeMode: "contain" },
   brandText: { gap: 2 },
-  appName: { fontSize: 20, fontWeight: "800", color: WHITE, letterSpacing: -0.2 },
-  appSub: { fontSize: 11, fontWeight: "500", color: WHITE_45, letterSpacing: 0.2 },
+  appName: { fontSize: 20, fontWeight: "800", color: INK, letterSpacing: -0.2 },
+  appSub: { fontSize: 11, fontWeight: "500", color: INK_MUTED, letterSpacing: 0.2 },
 
   // ── Card ──
   card: {
@@ -675,7 +679,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontSize: 11,
     fontWeight: "400",
-    color: WHITE_45,
+    color: INK_MUTED,
     textAlign: "center",
     lineHeight: 16,
   },
@@ -689,7 +693,7 @@ const styles = StyleSheet.create({
     gap: 5,
     marginTop: 16,
   },
-  footerText: { fontSize: 12, fontWeight: "400", color: WHITE_45 },
+  footerText: { fontSize: 12, fontWeight: "400", color: INK_MUTED },
   footerLink: { fontSize: 12, fontWeight: "700", color: GOLD },
 
   // ── Secure badge ──
@@ -703,7 +707,7 @@ const styles = StyleSheet.create({
   secureText: {
     fontSize: 11,
     fontWeight: "400",
-    color: WHITE_45,
+    color: INK_MUTED,
     textAlign: "center",
     flex: 1,
     lineHeight: 15,
