@@ -192,10 +192,12 @@ function Field({
   const [focused, setFocused] = useState(false);
   return (
     <View style={f.group}>
-      <View style={f.labelRow}>
-        <Text style={f.label}>{label}</Text>
-        {optional && <Text style={f.optional}>Optional</Text>}
-      </View>
+      {(label || optional) ? (
+        <View style={f.labelRow}>
+          {label ? <Text style={f.label}>{label}</Text> : <View />}
+          {optional && <Text style={f.optional}>Optional</Text>}
+        </View>
+      ) : null}
       <View style={[f.wrap, focused && f.wrapFocus]}>
         <Ionicons
           name={icon}
@@ -448,9 +450,8 @@ export default function SignUp() {
 
             {/* Password with strength */}
             <View style={f.group}>
-              <Text style={f.label}>Password</Text>
               <Field
-                label=""
+                label="Password"
                 icon="lock-closed-outline"
                 value={password}
                 onChange={(v) => { setPassword(v); clear(); }}
@@ -459,7 +460,6 @@ export default function SignUp() {
                 showSecure={showPass}
                 onToggleSecure={() => setShowPass((s) => !s)}
                 autoCapitalize="none"
-                hint={undefined}
               />
               {password.length > 0 && (
                 <View style={styles.strengthRow}>
