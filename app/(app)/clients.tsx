@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Screen from "../../src/components/Screen";
+import {
+  AppPage,
+  ContentCard,
+  PageHeader,
+  SummaryCard,
+  SummaryStrip,
+} from "../../src/components/AppPage";
+import EmptyState from "../../src/components/EmptyState";
 import { supabase } from "../../src/lib/supabase";
 import { getUserOrgId } from "../../src/lib/auth";
+import { logActivity } from "../../src/lib/activity";
 import { theme } from "../../src/theme/theme";
-import { ui } from "../../src/theme/ui";
 
 type ClientRow = {
   id: string;
@@ -13,34 +21,33 @@ type ClientRow = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
 };
 
 type ClientForm = {
   name: string;
   phone: string;
   email: string;
-  address: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
 };
-
-type AddressSuggestion = {
-  place_id: string;
-  display_name: string;
-};
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-    </View>
-  );
-}
 
 const emptyForm: ClientForm = {
   name: "",
   phone: "",
   email: "",
-  address: "",
+  address1: "",
+  address2: "",
+  city: "",
+  state: "",
+  zip: "",
 };
 
 function formatPhoneNumber(value: string) {
@@ -51,34 +58,35 @@ function formatPhoneNumber(value: string) {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+function formatAddressFields(address: {
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+}) {
+  const line1 = [address.address1, address.address2].filter(Boolean).join(", ");
+  const line2 = [address.city, address.state, address.zip].filter(Boolean).join(", ");
+  return [line1, line2].filter(Boolean).join(" - ");
+}
+
 export default function Clients() {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [orgId, setOrgId] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<ClientForm>(emptyForm);
-
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [loadingAddressSuggestions, setLoadingAddressSuggestions] = useState(false);
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
 
   const [pageMessage, setPageMessage] = useState<string>("");
   const [pageError, setPageError] = useState<string>("");
   const [formError, setFormError] = useState<string>("");
   const [formSuccess, setFormSuccess] = useState<string>("");
 
-  const addressSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
     void loadClients();
-
-    return () => {
-      if (addressSearchTimeout.current) {
-        clearTimeout(addressSearchTimeout.current);
-      }
-    };
   }, []);
 
   async function resolveOrgId() {
@@ -98,6 +106,7 @@ export default function Clients() {
     }
 
     setOrgId(resolvedOrgId);
+    setUserId(userId);
     return resolvedOrgId;
   }
 
@@ -111,7 +120,7 @@ export default function Clients() {
 
       const res = await supabase
         .from("clients")
-        .select("id, org_id, name, phone, email, address")
+        .select("id, org_id, name, phone, email, address, address1, address2, city, state, zip")
         .eq("org_id", resolvedOrgId)
         .order("name", { ascending: true })
         .limit(200);
@@ -127,6 +136,11 @@ export default function Clients() {
         phone: r.phone ?? "",
         email: r.email ?? "",
         address: r.address ?? "",
+        address1: r.address1 ?? "",
+        address2: r.address2 ?? "",
+        city: r.city ?? "",
+        state: r.state ?? "",
+        zip: r.zip ?? "",
       }));
 
       setItems(mapped);
@@ -143,9 +157,6 @@ export default function Clients() {
 
   function resetForm() {
     setForm(emptyForm);
-    setAddressSuggestions([]);
-    setShowAddressSuggestions(false);
-    setLoadingAddressSuggestions(false);
     setFormError("");
     setFormSuccess("");
   }
@@ -165,66 +176,6 @@ export default function Clients() {
     setFormField("phone", formatPhoneNumber(value));
   }
 
-  function onAddressChange(value: string) {
-    setFormField("address", value);
-    setShowAddressSuggestions(true);
-
-    if (addressSearchTimeout.current) {
-      clearTimeout(addressSearchTimeout.current);
-    }
-
-    const query = value.trim();
-
-    if (query.length < 4) {
-      setAddressSuggestions([]);
-      setLoadingAddressSuggestions(false);
-      return;
-    }
-
-    addressSearchTimeout.current = setTimeout(() => {
-      void fetchAddressSuggestions(query);
-    }, 350);
-  }
-
-  async function fetchAddressSuggestions(query: string) {
-    setLoadingAddressSuggestions(true);
-
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error("Address lookup failed.");
-      }
-
-      const data = await res.json();
-
-      const suggestions: AddressSuggestion[] = Array.isArray(data)
-        ? data.map((item: any) => ({
-            place_id: String(item.place_id),
-            display_name: item.display_name ?? "",
-          }))
-        : [];
-
-      setAddressSuggestions(suggestions);
-      setShowAddressSuggestions(true);
-    } catch {
-      setAddressSuggestions([]);
-    } finally {
-      setLoadingAddressSuggestions(false);
-    }
-  }
-
-  function chooseAddress(displayName: string) {
-    setFormField("address", displayName);
-    setAddressSuggestions([]);
-    setShowAddressSuggestions(false);
-  }
-
   async function createClient() {
     if (saving) return;
 
@@ -235,7 +186,12 @@ export default function Clients() {
     const name = form.name.trim();
     const phone = form.phone.trim();
     const email = form.email.trim();
-    const address = form.address.trim();
+    const address1 = form.address1.trim();
+    const address2 = form.address2.trim();
+    const city = form.city.trim();
+    const state = form.state.trim().toUpperCase();
+    const zip = form.zip.trim();
+    const address = formatAddressFields({ address1, address2, city, state, zip });
 
     if (!name) {
       setFormError("Please enter a client name.");
@@ -265,12 +221,17 @@ export default function Clients() {
         phone: phone || null,
         email: email || null,
         address: address || null,
+        address1: address1 || null,
+        address2: address2 || null,
+        city: city || null,
+        state: state || null,
+        zip: zip || null,
       };
 
       const insertRes = await supabase
         .from("clients")
         .insert(insertPayload)
-        .select("id, org_id, name, phone, email, address")
+        .select("id, org_id, name, phone, email, address, address1, address2, city, state, zip")
         .single();
 
       if (insertRes.error) {
@@ -284,11 +245,25 @@ export default function Clients() {
         phone: insertRes.data.phone ?? "",
         email: insertRes.data.email ?? "",
         address: insertRes.data.address ?? "",
+        address1: insertRes.data.address1 ?? "",
+        address2: insertRes.data.address2 ?? "",
+        city: insertRes.data.city ?? "",
+        state: insertRes.data.state ?? "",
+        zip: insertRes.data.zip ?? "",
       };
 
       setItems((prev) => [...prev, newClient].sort((a, b) => a.name.localeCompare(b.name)));
       setFormSuccess("Client saved successfully.");
       setPageMessage(`Added client: ${newClient.name}`);
+
+      void logActivity(supabase, {
+        org_id: newClient.org_id ?? activeOrgId,
+        actor_user_id: userId || null,
+        actor_name: null,
+        action: `added client ${newClient.name}`,
+        entity_type: "client",
+        entity_id: newClient.id,
+      });
 
       setTimeout(() => {
         setShowCreate(false);
@@ -310,7 +285,7 @@ export default function Clients() {
         it.name.toLowerCase().includes(q) ||
         (it.phone ?? "").toLowerCase().includes(q) ||
         (it.email ?? "").toLowerCase().includes(q) ||
-        (it.address ?? "").toLowerCase().includes(q)
+        (formatAddressFields(it) || it.address || "").toLowerCase().includes(q)
       );
     });
   }, [items, search]);
@@ -319,17 +294,16 @@ export default function Clients() {
 
   return (
     <Screen padded={false}>
-      <View style={[ui.container, styles.pagePad]}>
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.heroTitle}>Clients</Text>
-            <Text style={styles.heroSub}>Manage customer records and create work orders faster.</Text>
-          </View>
-
-          <Pressable style={styles.primaryBtn} onPress={openCreateModal}>
-            <Text style={styles.primaryBtnText}>New Client</Text>
-          </Pressable>
-        </View>
+      <AppPage>
+        <PageHeader
+          eyebrow="Clients"
+          title="Directory"
+          subtitle="Keep customer records clean, searchable, and ready for new work orders."
+          actions={[
+            { label: "Refresh", onPress: () => void loadClients() },
+            { label: "New Client", primary: true, onPress: openCreateModal },
+          ]}
+        />
 
         {pageError ? (
           <View style={styles.bannerError}>
@@ -343,60 +317,65 @@ export default function Clients() {
           </View>
         ) : null}
 
-        <View style={styles.statsRow}>
-          <StatCard label="Total Clients" value={String(items.length)} />
-          <StatCard label="Shown" value={String(filtered.length)} />
-          <StatCard label="With Email" value={String(emailCount)} />
-        </View>
+        <SummaryStrip>
+          <SummaryCard label="Total Clients" value={String(items.length)} meta="All customer records" accent="teal" />
+          <SummaryCard label="Visible" value={String(filtered.length)} meta="Current filter results" accent="lavender" />
+          <SummaryCard label="With Email" value={String(emailCount)} meta="Ready for invoice delivery" accent="purple" />
+        </SummaryStrip>
 
-        <View style={styles.searchWrap}>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search clients..."
-            placeholderTextColor={MUTED_2}
-            style={styles.search}
-          />
-        </View>
-
-        <View style={[ui.card, styles.tableCard]}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, { flex: 1.2 }]}>Name</Text>
-            <Text style={[styles.th, { width: 180 }]}>Phone</Text>
-            <Text style={[styles.th, { width: 240 }]}>Email</Text>
-            <Text style={[styles.th, { flex: 1.1 }]}>Address</Text>
+        <ContentCard title="Client list" subtitle="Search, review, and open details without overloading the page.">
+          <View style={styles.searchWrap}>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search clients"
+              placeholderTextColor={theme.colors.muted}
+              style={styles.search}
+            />
           </View>
 
-          <ScrollView>
-            {loading ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.empty}>Loading clients...</Text>
-              </View>
-            ) : filtered.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.empty}>No clients yet.</Text>
-                <Text style={styles.emptySub}>Add a client to start creating work orders.</Text>
-              </View>
-            ) : (
-              filtered.map((item, index) => (
-                <View key={item.id} style={[styles.tr, index % 2 === 0 ? styles.trStriped : null]}>
-                  <Text style={[styles.td, { flex: 1.2 }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={[styles.td, { width: 180 }]} numberOfLines={1}>
-                    {item.phone || "—"}
-                  </Text>
-                  <Text style={[styles.td, { width: 240 }]} numberOfLines={1}>
-                    {item.email || "—"}
-                  </Text>
-                  <Text style={[styles.td, { flex: 1.1 }]} numberOfLines={1}>
-                    {item.address || "—"}
-                  </Text>
+          <View style={styles.table}>
+            <View style={styles.tableHead}>
+              <Text style={[styles.th, { flex: 1.2 }]}>Name</Text>
+              <Text style={[styles.th, { width: 180 }]}>Contact</Text>
+              <Text style={[styles.th, { width: 240 }]}>Email</Text>
+              <Text style={[styles.th, { flex: 1.1 }]}>Address</Text>
+            </View>
+
+            <ScrollView>
+              {loading ? (
+                <View style={styles.emptyWrap}>
+                  <Text style={styles.empty}>Loading clients...</Text>
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </View>
+              ) : filtered.length === 0 ? (
+                <EmptyState
+                  icon="people-outline"
+                  title="No clients yet"
+                  body="Add your first client to speed up work orders, billing, and follow-up communication."
+                  actionLabel="New Client"
+                  onAction={openCreateModal}
+                />
+              ) : (
+                filtered.map((item, index) => (
+                  <View key={item.id} style={[styles.tr, index % 2 === 0 ? styles.trStriped : null]}>
+                    <Text style={[styles.td, { flex: 1.2 }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.td, { width: 180 }]} numberOfLines={1}>
+                      {item.phone || "-"}
+                    </Text>
+                    <Text style={[styles.td, { width: 240 }]} numberOfLines={1}>
+                      {item.email || "-"}
+                    </Text>
+                    <Text style={[styles.td, { flex: 1.1 }]} numberOfLines={1}>
+                      {formatAddressFields(item) || item.address || "-"}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </ContentCard>
 
         <Modal visible={showCreate} transparent animationType="fade" onRequestClose={closeCreateModal}>
           <View style={styles.modalBackdrop}>
@@ -407,8 +386,8 @@ export default function Clients() {
                   <Text style={styles.modalSub}>Add a customer record to GSD Grid.</Text>
                 </View>
 
-                <Pressable onPress={closeCreateModal} style={styles.closeBtn}>
-                  <Text style={styles.closeBtnText}>Close</Text>
+                <Pressable onPress={closeCreateModal} style={styles.secondaryBtn}>
+                  <Text style={styles.secondaryBtnText}>Close</Text>
                 </Pressable>
               </View>
 
@@ -463,39 +442,55 @@ export default function Clients() {
 
                 <View style={styles.fieldColFull}>
                   <Text style={styles.fieldLabel}>Address</Text>
-                  <TextInput
-                    value={form.address}
-                    onChangeText={onAddressChange}
-                    onFocus={() => {
-                      if (addressSuggestions.length) setShowAddressSuggestions(true);
-                    }}
-                    placeholder="Start typing an address..."
-                    placeholderTextColor={theme.colors.muted}
-                    style={[styles.input, styles.inputMultiline]}
-                    multiline
-                  />
+                  <View style={styles.addressGrid}>
+                    <TextInput
+                      value={form.address1}
+                      onChangeText={(v) => setFormField("address1", v)}
+                      placeholder="Street address"
+                      placeholderTextColor={theme.colors.muted}
+                      style={styles.input}
+                    />
 
-                  {showAddressSuggestions ? (
-                    <View style={styles.suggestionsBox}>
-                      {loadingAddressSuggestions ? (
-                        <Text style={styles.suggestionLoading}>Searching addresses...</Text>
-                      ) : addressSuggestions.length === 0 ? (
-                        form.address.trim().length >= 4 ? (
-                          <Text style={styles.suggestionLoading}>No address matches found.</Text>
-                        ) : null
-                      ) : (
-                        addressSuggestions.map((item) => (
-                          <Pressable
-                            key={item.place_id}
-                            onPress={() => chooseAddress(item.display_name)}
-                            style={({ pressed }) => [styles.suggestionItem, pressed ? styles.suggestionItemPressed : null]}
-                          >
-                            <Text style={styles.suggestionText}>{item.display_name}</Text>
-                          </Pressable>
-                        ))
-                      )}
+                    <TextInput
+                      value={form.address2}
+                      onChangeText={(v) => setFormField("address2", v)}
+                      placeholder="Apt, suite, unit"
+                      placeholderTextColor={theme.colors.muted}
+                      style={styles.input}
+                    />
+
+                    <View style={styles.addressCityCol}>
+                      <TextInput
+                        value={form.city}
+                        onChangeText={(v) => setFormField("city", v)}
+                        placeholder="City"
+                        placeholderTextColor={theme.colors.muted}
+                        style={styles.input}
+                      />
                     </View>
-                  ) : null}
+
+                    <View style={styles.addressStateCol}>
+                      <TextInput
+                        value={form.state}
+                        onChangeText={(v) => setFormField("state", v.replace(/[^a-z]/gi, "").slice(0, 2).toUpperCase())}
+                        placeholder="ST"
+                        placeholderTextColor={theme.colors.muted}
+                        autoCapitalize="characters"
+                        style={styles.input}
+                      />
+                    </View>
+
+                    <View style={styles.addressZipCol}>
+                      <TextInput
+                        value={form.zip}
+                        onChangeText={(v) => setFormField("zip", v.replace(/[^\d-]/g, "").slice(0, 10))}
+                        placeholder="ZIP"
+                        placeholderTextColor={theme.colors.muted}
+                        keyboardType="numeric"
+                        style={styles.input}
+                      />
+                    </View>
+                  </View>
                 </View>
               </View>
 
@@ -511,255 +506,116 @@ export default function Clients() {
             </View>
           </View>
         </Modal>
-      </View>
+      </AppPage>
     </Screen>
   );
 }
 
-
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
-const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
-
-
 const styles = StyleSheet.create({
-  pagePad: { padding: 24, backgroundColor: PAGE_BG, minHeight: "100%" },
-
-  headerRow: {
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
-    backgroundColor: DARK_CARD,
+  bannerError: {
     borderWidth: 1,
-    borderColor: DARK_BORDER,
-    borderRadius: 28,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-
-  primaryBtn: {
-    backgroundColor: GOLD_BRIGHT,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: GOLD,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  primaryBtnDisabled: {
-    opacity: 0.7,
-  },
-
-  primaryBtnText: {
-    fontWeight: "900",
-    color: "#111",
-  },
-
-  heroTitle: {
-    fontSize: 36,
-    lineHeight: 40,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-
-  heroSub: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.76)",
-    maxWidth: 720,
-  },
-
-  secondaryBtn: {
-    backgroundColor: CARD_BG,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  secondaryBtnText: {
-    fontWeight: "900",
-    color: theme.colors.ink,
-  },
-
-  statsRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 14,
-    flexWrap: "wrap",
-  },
-
-  statCard: {
-    flexGrow: 1,
-    minWidth: 220,
-    backgroundColor: CARD_BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-
-  statLabel: {
-    fontSize: 12,
-    color: theme.colors.muted,
+  bannerErrorText: {
+    color: "#991B1B",
     fontWeight: "800",
   },
-
-  statValue: {
-    marginTop: 8,
-    fontSize: 24,
-    fontWeight: "900",
-    color: theme.colors.gold,
-  },
-
-  searchWrap: {
+  bannerSuccess: {
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#BBF7D0",
+    backgroundColor: "#F0FDF4",
     borderRadius: 14,
-    paddingHorizontal: 12,
-    height: 44,
-    justifyContent: "center",
-    marginBottom: 14,
-    backgroundColor: CARD_BG,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-
+  bannerSuccessText: {
+    color: "#166534",
+    fontWeight: "800",
+  },
+  searchWrap: {
+    height: 46,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface,
+  },
   search: {
     fontSize: 14,
     color: theme.colors.ink,
+    fontWeight: "500",
   },
-
-  tableCard: {
-    padding: 0,
+  table: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 14,
     overflow: "hidden",
+    backgroundColor: theme.colors.surface,
   },
-
   tableHead: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: BORDER,
+    borderColor: theme.colors.border,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: "#f6f6f6",
+    backgroundColor: theme.colors.bg,
   },
-
   th: {
     fontWeight: "800",
     fontSize: 12,
     color: theme.colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-
   tr: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderColor: BORDER,
+    borderColor: theme.colors.border,
   },
-
   trStriped: {
-    backgroundColor: "#fcfcfc",
+    backgroundColor: "#F8FAFC",
   },
-
   td: {
     color: theme.colors.ink,
-    fontWeight: "700",
+    fontWeight: "600",
     fontSize: 13,
   },
-
   emptyWrap: {
-    paddingVertical: 22,
+    paddingVertical: 24,
     paddingHorizontal: 16,
   },
-
   empty: {
     fontWeight: "800",
     color: theme.colors.ink,
   },
-
   emptySub: {
     marginTop: 6,
     color: theme.colors.muted,
   },
-
-  bannerError: {
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  bannerErrorText: {
-    color: "#991b1b",
-    fontWeight: "800",
-  },
-
-  bannerSuccess: {
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#bbf7d0",
-    backgroundColor: "#f0fdf4",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  bannerSuccessText: {
-    color: "#166534",
-    fontWeight: "800",
-  },
-
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(10,10,10,0.35)",
+    backgroundColor: "rgba(17,24,39,0.28)",
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
   },
-
   modalCard: {
     width: "100%",
     maxWidth: 720,
-    backgroundColor: CARD_BG,
+    backgroundColor: theme.colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: theme.colors.border,
     padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
   },
-
   modalTop: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -767,141 +623,124 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
-
   modalTitle: {
     fontSize: 22,
     fontWeight: "900",
     color: theme.colors.ink,
   },
-
   modalSub: {
     marginTop: 4,
     color: theme.colors.muted,
-    fontWeight: "700",
+    fontWeight: "500",
   },
-
-  closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_BG,
-  },
-
-  closeBtnText: {
-    color: theme.colors.ink,
-    fontWeight: "800",
-  },
-
   formBannerError: {
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-
   formBannerErrorText: {
-    color: "#991b1b",
+    color: "#991B1B",
     fontWeight: "800",
   },
-
   formBannerSuccess: {
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#bbf7d0",
-    backgroundColor: "#f0fdf4",
+    borderColor: "#BBF7D0",
+    backgroundColor: "#F0FDF4",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-
   formBannerSuccessText: {
     color: "#166534",
     fontWeight: "800",
   },
-
   formGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
   },
-
   fieldCol: {
     flexGrow: 1,
     flexBasis: 260,
     minWidth: 220,
   },
-
   fieldColFull: {
     width: "100%",
   },
-
   fieldLabel: {
     color: theme.colors.muted,
-    fontWeight: "900",
+    fontWeight: "800",
     fontSize: 12,
     marginBottom: 6,
   },
-
   input: {
-    height: 46,
+    minHeight: 46,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: theme.colors.border,
     borderRadius: 12,
-    backgroundColor: CARD_BG,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     color: theme.colors.ink,
-    fontWeight: "800",
+    fontWeight: "500",
   },
-
-  inputMultiline: {
-    minHeight: 92,
-    height: 92,
-    paddingTop: 12,
-    textAlignVertical: "top",
+  addressGrid: {
+    gap: 12,
   },
-
-  suggestionsBox: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    backgroundColor: CARD_BG,
-    overflow: "hidden",
+  addressCityCol: {
+    flexGrow: 1,
+    flexBasis: 220,
+    minWidth: 180,
   },
-
-  suggestionLoading: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: theme.colors.muted,
-    fontWeight: "700",
+  addressStateCol: {
+    flexGrow: 0,
+    flexBasis: 96,
+    minWidth: 84,
   },
-
-  suggestionItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+  addressZipCol: {
+    flexGrow: 0,
+    flexBasis: 132,
+    minWidth: 116,
   },
-
-  suggestionItemPressed: {
-    backgroundColor: "#faf7ef",
-  },
-
-  suggestionText: {
-    color: theme.colors.ink,
-    fontWeight: "700",
-    lineHeight: 19,
-  },
-
   modalActions: {
     marginTop: 18,
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 10,
+  },
+  secondaryBtn: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnText: {
+    color: theme.colors.ink,
+    fontWeight: "700",
+  },
+  primaryBtn: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    backgroundColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtnDisabled: {
+    opacity: 0.7,
+  },
+  primaryBtnText: {
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

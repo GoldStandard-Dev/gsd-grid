@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRootNavigationState, useRouter } from "expo-router";
 import Screen from "../../src/components/Screen";
 import { supabase } from "../../src/lib/supabase";
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
+const PAGE_BG = "#FFFFFF";
+const CARD_BG = "#FFFFFF";
+const BORDER = "#E5E7EB";
+const BORDER_SOFT = "#E5E7EB";
+const GOLD = "#2563EB";
+const GOLD_BRIGHT = "#2563EB";
 const TEXT = "#111111";
-const MUTED = "#6f6a63";
+const MUTED = "#6B7280";
 const DANGER = "#9f3b2f";
 const DANGER_BG = "#fff3ef";
 const DANGER_BORDER = "#efc8bc";
@@ -21,6 +21,7 @@ const SUCCESS_BORDER = "#b9dfc8";
 
 export default function AcceptInvitePage() {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const params = useLocalSearchParams<{ id?: string }>();
   const inviteId = typeof params.id === "string" ? params.id : "";
 
@@ -29,8 +30,9 @@ export default function AcceptInvitePage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!rootNavigationState?.key) return;
     void handleInvite();
-  }, [inviteId]);
+  }, [inviteId, rootNavigationState?.key]);
 
   async function handleInvite() {
     setLoading(true);
@@ -119,7 +121,7 @@ export default function AcceptInvitePage() {
 
             <View style={styles.heroPanel}>
               <Text style={styles.heroPanelLabel}>Invite flow</Text>
-              <Text style={styles.heroPanelValue}>Verify → Accept → Enter</Text>
+              <Text style={styles.heroPanelValue}>Verify / Accept / Enter</Text>
               <Text style={styles.heroPanelText}>
                 We confirm the invite, match the signed-in email, and attach you to the organization.
               </Text>
@@ -217,17 +219,17 @@ const styles = StyleSheet.create({
   },
 
   heroTitle: {
-    color: "#ffffff",
-    fontSize: 38,
-    lineHeight: 42,
+    color: TEXT,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: "900",
   },
 
   heroSubtitle: {
-    color: "rgba(255,255,255,0.76)",
+    color: MUTED,
     fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
+    lineHeight: 21,
+    fontWeight: "500",
     marginTop: 10,
     maxWidth: 640,
   },
@@ -236,15 +238,15 @@ const styles = StyleSheet.create({
     width: 300,
     minWidth: 260,
     borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: CARD_BG,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: BORDER,
     padding: 18,
     justifyContent: "center",
   },
 
   heroPanelLabel: {
-    color: GOLD_BRIGHT,
+    color: GOLD,
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -253,18 +255,18 @@ const styles = StyleSheet.create({
   },
 
   heroPanelValue: {
-    color: "#ffffff",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
+    color: TEXT,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
   },
 
   heroPanelText: {
     marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 13,
+    color: MUTED,
+    fontSize: 14,
     lineHeight: 20,
-    fontWeight: "700",
+    fontWeight: "500",
   },
 
   card: {
@@ -373,14 +375,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 18,
     minWidth: 180,
-    shadowColor: "#c9a227",
+    shadowColor: "#2563EB",
     shadowOpacity: 0.24,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
 
   primaryBtnText: {
-    color: TEXT,
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "900",
   },

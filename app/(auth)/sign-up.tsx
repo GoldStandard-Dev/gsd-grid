@@ -1,28 +1,17 @@
 import { useState } from "react";
 import { Link, useRouter } from "expo-router";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Screen from "../../src/components/Screen";
+import AlertBox from "../../src/components/AlertBox";
+import FormField from "../../src/components/FormField";
+import PrimaryButton from "../../src/components/PrimaryButton";
 import { supabase } from "../../src/lib/supabase";
-
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
-const DANGER = "#9f3b2f";
-const DANGER_BG = "#fff3ef";
-const DANGER_BORDER = "#efc8bc";
-const SUCCESS = "#216a43";
-const SUCCESS_BG = "#eefaf2";
-const SUCCESS_BORDER = "#b9dfc8";
+import { setupNewAccount } from "../../src/lib/auth";
+import { theme } from "../../src/theme/theme";
+import { ui } from "../../src/theme/ui";
 
 function formatPhoneInput(value: string) {
   const digits = (value ?? "").replace(/\D/g, "").slice(0, 10);
-
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
@@ -37,10 +26,13 @@ export default function SignUp() {
   const [jobTitle, setJobTitle] = useState("Owner");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  function clearErr() {
+    if (err) setErr(null);
+  }
 
   async function handleCreateAccount() {
     setErr(null);
@@ -56,17 +48,14 @@ export default function SignUp() {
       setErr("Enter your full name.");
       return;
     }
-
     if (!cleanCompanyName) {
       setErr("Enter your company name.");
       return;
     }
-
     if (!cleanEmail) {
       setErr("Enter your email.");
       return;
     }
-
     if (password.trim().length < 8) {
       setErr("Password must be at least 8 characters.");
       return;
@@ -81,6 +70,7 @@ export default function SignUp() {
     try {
       setLoading(true);
 
+      // Step 1 - create auth user
       const signUpRes = await supabase.auth.signUp({
         email: cleanEmail,
         password,
@@ -90,45 +80,31 @@ export default function SignUp() {
             company_name: cleanCompanyName,
             phone: phoneDigits || null,
             job_title: cleanJobTitle,
-            owner_profile_created: true,
           },
         },
       });
 
-      if (signUpRes.error) {
-        throw new Error(signUpRes.error.message);
-      }
+      if (signUpRes.error) throw new Error(signUpRes.error.message);
+      if (!signUpRes.data.user?.id) throw new Error("Account created but no user ID returned.");
 
-      const userId = signUpRes.data.user?.id;
-
-      if (!userId) {
-        throw new Error("Account created, but no user ID was returned.");
-      }
-
-      const hasSession = !!signUpRes.data.session;
-
-      if (!hasSession) {
-        setMsg("Account created. Check your email to confirm your account, then sign in.");
+      // Email confirmation required - no session yet
+      if (!signUpRes.data.session) {
+        setMsg("Account created! Check your email to confirm, then sign in.");
         return;
       }
 
-      const profilePayload = {
-        user_id: userId,
-        full_name: cleanFullName,
-        phone: phoneDigits || null,
+      // Step 2 - create org + profile in one shot, go straight to dashboard
+      const setup = await setupNewAccount({
+        orgName: cleanCompanyName,
+        fullName: cleanFullName,
         email: cleanEmail,
-        job_title: cleanJobTitle,
-        company_name: cleanCompanyName,
-        notes: "Owner profile created during signup.",
-      };
+        phone: phoneDigits || undefined,
+        jobTitle: cleanJobTitle,
+      });
 
-      const profileRes = await supabase.from("profiles").upsert(profilePayload, { onConflict: "user_id" });
+      if (!setup.ok) throw new Error(setup.error);
 
-      if (profileRes.error) {
-        throw new Error(profileRes.error.message);
-      }
-
-      router.replace("/(onboarding)/create-org");
+      router.replace("/(app)/dashboard");
     } catch (error: any) {
       setErr(error?.message ?? "Failed to create account.");
     } finally {
@@ -138,174 +114,140 @@ export default function SignUp() {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-        <View style={styles.wrap}>
-          <View style={styles.hero}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.eyebrow}>Owner Setup</Text>
-              <Text style={styles.heroTitle}>Create your account</Text>
-              <Text style={styles.heroSubtitle}>
-                Set up your owner profile first, then create your organization and start inviting your team.
-              </Text>
-
-              <View style={styles.heroPills}>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>Owner profile included</Text>
-                </View>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>Dashboard-matched UI</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.heroPanel}>
-              <Image
-                source={require("../../assets/brand/gsd-grid-icon.png")}
-                style={styles.logo}
-              />
-              <Text style={styles.heroPanelLabel}>What happens next</Text>
-              <Text style={styles.heroPanelValue}>Account → Org → Team</Text>
-              <Text style={styles.heroPanelText}>
-                After signup, you will create your organization and land in the main dashboard experience.
-              </Text>
-            </View>
+      <ScrollView
+        contentContainerStyle={styles.page}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.card}>
+          <View style={styles.logoWrap}>
+            <Image source={require("../../assets/brand/gsd-grid-icon.png")} style={styles.logoImg} />
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.cardTop}>
-              <Text style={styles.cardEyebrow}>New Workspace</Text>
-              <Text style={styles.title}>Create account</Text>
-              <Text style={styles.subtitle}>Set up your owner profile to get started.</Text>
-            </View>
+          <Text style={styles.logoWordmark}>GSD Grid</Text>
+          <Text style={styles.heading}>Create your account</Text>
+          <Text style={styles.subheading}>Set up your workspace in one quick step.</Text>
+          <View style={styles.headingRule} />
 
-            <View style={styles.divider} />
-
-            <View style={styles.row}>
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Full Name</Text>
+          <View style={styles.row}>
+            <View style={styles.halfField}>
+              <FormField label="Full Name">
                 <TextInput
                   value={fullName}
                   onChangeText={(value) => {
                     setFullName(value);
-                    if (err) setErr(null);
+                    clearErr();
                   }}
-                  placeholder="Tyler Harrington"
-                  placeholderTextColor={MUTED_2}
+                  placeholder="Full name"
+                  placeholderTextColor={theme.colors.muted}
                   style={styles.input}
                 />
-              </View>
-
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Job Title</Text>
+              </FormField>
+            </View>
+            <View style={styles.halfField}>
+              <FormField label="Job Title">
                 <TextInput
                   value={jobTitle}
                   onChangeText={(value) => {
                     setJobTitle(value);
-                    if (err) setErr(null);
+                    clearErr();
                   }}
                   placeholder="Owner"
-                  placeholderTextColor={MUTED_2}
+                  placeholderTextColor={theme.colors.muted}
                   style={styles.input}
                 />
-              </View>
+              </FormField>
             </View>
+          </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Company Name</Text>
-              <TextInput
-                value={companyName}
-                onChangeText={(value) => {
-                  setCompanyName(value);
-                  if (err) setErr(null);
-                }}
-                placeholder="GSD Contracting"
-                placeholderTextColor={MUTED_2}
-                style={styles.input}
-              />
-            </View>
+          <FormField label="Company Name">
+            <TextInput
+              value={companyName}
+              onChangeText={(value) => {
+                setCompanyName(value);
+                clearErr();
+              }}
+              placeholder="GSD Contracting"
+              placeholderTextColor={theme.colors.muted}
+              style={styles.input}
+            />
+          </FormField>
 
-            <View style={styles.row}>
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Phone</Text>
+          <View style={styles.row}>
+            <View style={styles.halfField}>
+              <FormField label="Phone">
                 <TextInput
                   value={phone}
                   onChangeText={(value) => {
                     setPhone(formatPhoneInput(value));
-                    if (err) setErr(null);
+                    clearErr();
                   }}
                   placeholder="(704) 555-0199"
-                  placeholderTextColor={MUTED_2}
+                  placeholderTextColor={theme.colors.muted}
                   keyboardType="phone-pad"
                   style={styles.input}
                 />
-              </View>
-
-              <View style={styles.halfField}>
-                <Text style={styles.label}>Email</Text>
+              </FormField>
+            </View>
+            <View style={styles.halfField}>
+              <FormField label="Email">
                 <TextInput
                   value={email}
                   onChangeText={(value) => {
                     setEmail(value);
-                    if (err) setErr(null);
+                    clearErr();
                     if (msg) setMsg(null);
                   }}
                   placeholder="you@company.com"
-                  placeholderTextColor={MUTED_2}
+                  placeholderTextColor={theme.colors.muted}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoCorrect={false}
                   style={styles.input}
                 />
-              </View>
+              </FormField>
             </View>
+          </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                value={password}
-                onChangeText={(value) => {
-                  setPassword(value);
-                  if (err) setErr(null);
-                }}
-                placeholder="Minimum 8 characters"
-                placeholderTextColor={MUTED_2}
-                secureTextEntry
-                style={styles.input}
-              />
+          <FormField label="Password">
+            <TextInput
+              value={password}
+              onChangeText={(value) => {
+                setPassword(value);
+                clearErr();
+              }}
+              placeholder="Minimum 8 characters"
+              placeholderTextColor={theme.colors.muted}
+              secureTextEntry
+              style={styles.input}
+            />
+          </FormField>
+
+          {err ? (
+            <View style={styles.alertWrap}>
+              <AlertBox type="error" message={err} />
             </View>
-
-            {err ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{err}</Text>
-              </View>
-            ) : null}
-
-            {msg ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successText}>{msg}</Text>
-              </View>
-            ) : null}
-
-            <View style={styles.actions}>
-              <Pressable
-                onPress={() => void handleCreateAccount()}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.primaryBtn,
-                  loading ? styles.primaryBtnDisabled : null,
-                  pressed ? styles.pressed : null,
-                ]}
-              >
-                <Text style={styles.primaryBtnText}>{loading ? "Creating account..." : "Create Account"}</Text>
-              </Pressable>
+          ) : null}
+          {msg ? (
+            <View style={styles.alertWrap}>
+              <AlertBox type="success" message={msg} />
             </View>
+          ) : null}
 
-            <View style={styles.footerRow}>
-              <Text style={styles.footerText}>Already have an account?</Text>
-              <Link href="/(auth)/sign-in" style={styles.footerLink}>
-                Sign in
-              </Link>
-            </View>
+          <View style={styles.btnWrap}>
+            <PrimaryButton
+              title="Create Account"
+              loadingTitle="Creating account..."
+              onPress={() => void handleCreateAccount()}
+              loading={loading}
+            />
+          </View>
+
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Already have an account?</Text>
+            <Link href="/(auth)/sign-in" style={styles.footerLink}>
+              Sign in
+            </Link>
           </View>
         </View>
       </ScrollView>
@@ -316,294 +258,100 @@ export default function SignUp() {
 const styles = StyleSheet.create({
   page: {
     flexGrow: 1,
-    backgroundColor: PAGE_BG,
+    backgroundColor: theme.colors.bg,
+    justifyContent: "center",
     padding: 24,
   },
-
-  wrap: {
+  card: {
     width: "100%",
-    maxWidth: 1120,
+    maxWidth: 420,
     alignSelf: "center",
-    gap: 16,
-  },
-
-  hero: {
-    borderRadius: 28,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: BORDER_SOFT,
-    backgroundColor: TEXT,
-    padding: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    borderColor: theme.colors.border,
+    borderRadius: 16,
+    padding: 28,
   },
-
-  heroCopy: {
-    flex: 1,
-    minWidth: 280,
-    justifyContent: "center",
-  },
-
-  eyebrow: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-
-  heroTitle: {
-    color: "#ffffff",
-    fontSize: 38,
-    lineHeight: 42,
-    fontWeight: "900",
-  },
-
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
-    marginTop: 10,
-    maxWidth: 620,
-  },
-
-  heroPills: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 18,
-  },
-
-  heroPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-
-  heroPillText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-
-  heroPanel: {
-    width: 300,
-    minWidth: 260,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 18,
-    justifyContent: "center",
-  },
-
-  logo: {
+  logoWrap: {
     width: 56,
     height: 56,
-    resizeMode: "contain",
-    marginBottom: 16,
-  },
-
-  heroPanelLabel: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    marginBottom: 8,
-  },
-
-  heroPanelValue: {
-    color: "#ffffff",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
-  },
-
-  heroPanelText: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-  },
-
-  cardTop: {
-    gap: 6,
-  },
-
-  cardEyebrow: {
-    color: GOLD,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-  },
-
-  title: {
-    color: TEXT,
-    fontSize: 32,
-    lineHeight: 36,
-    fontWeight: "900",
-  },
-
-  subtitle: {
-    color: MUTED,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "700",
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#efe4c8",
-    marginTop: 16,
-    marginBottom: 18,
-  },
-
-  row: {
-    flexDirection: "row",
-    gap: 14,
-    flexWrap: "wrap",
-  },
-
-  field: {
-    marginBottom: 16,
-  },
-
-  halfField: {
-    flex: 1,
-    minWidth: 250,
-    marginBottom: 16,
-  },
-
-  label: {
-    color: TEXT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
-
-  input: {
-    minHeight: 50,
     borderRadius: 16,
+    backgroundColor: theme.colors.surface2,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    paddingHorizontal: 16,
-    color: TEXT,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  errorBox: {
-    marginTop: 2,
-    borderWidth: 1,
-    borderColor: DANGER_BORDER,
-    backgroundColor: DANGER_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  errorText: {
-    color: DANGER,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  successBox: {
-    marginTop: 2,
-    borderWidth: 1,
-    borderColor: SUCCESS_BORDER,
-    backgroundColor: SUCCESS_BG,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  successText: {
-    color: SUCCESS,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-
-  actions: {
-    marginTop: 18,
-  },
-
-  primaryBtn: {
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: GOLD_BRIGHT,
-    borderWidth: 1,
-    borderColor: GOLD,
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
-    shadowColor: "#c9a227",
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    alignSelf: "center",
   },
-
-  primaryBtnDisabled: {
-    opacity: 0.7,
+  logoImg: {
+    width: 32,
+    height: 32,
+    resizeMode: "contain",
   },
-
-  primaryBtnText: {
-    color: TEXT,
-    fontSize: 14,
+  logoWordmark: {
+    fontSize: 18,
     fontWeight: "900",
+    color: theme.colors.ink,
+    textAlign: "center",
+    marginTop: 14,
+    marginBottom: 24,
+    letterSpacing: 0.2,
   },
-
-  footerRow: {
+  heading: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: theme.colors.ink,
+    letterSpacing: -0.2,
+  },
+  subheading: {
+    marginTop: 6,
+    fontSize: 14,
+    color: theme.colors.muted,
+    fontWeight: "500",
+  },
+  headingRule: {
+    width: 48,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: theme.colors.gold,
     marginTop: 16,
+    marginBottom: 24,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  halfField: {
+    flex: 1,
+    minWidth: 168,
+  },
+  input: {
+    ...ui.input,
+    minHeight: 48,
+  },
+  alertWrap: {
+    marginBottom: 12,
+  },
+  btnWrap: {
+    marginTop: 8,
+  },
+  footerRow: {
+    marginTop: 20,
     flexDirection: "row",
     gap: 6,
     flexWrap: "wrap",
     alignItems: "center",
+    justifyContent: "center",
   },
-
   footerText: {
-    color: MUTED,
-    fontSize: 13,
-    fontWeight: "700",
+    color: theme.colors.muted,
+    fontSize: 14,
+    fontWeight: "500",
   },
-
   footerLink: {
-    color: GOLD,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  pressed: {
-    opacity: 0.92,
+    color: theme.colors.goldDark,
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

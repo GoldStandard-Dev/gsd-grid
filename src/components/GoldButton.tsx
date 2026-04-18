@@ -31,24 +31,25 @@ export default function GoldButton({
 
 const styles = StyleSheet.create({
   btn: {
-    minHeight: 48,
-    backgroundColor: theme.colors.gold,
+    minHeight: 46,
+    backgroundColor: theme.colors.primary,
     borderRadius: theme.radius.md,
     paddingVertical: 12,
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: theme.colors.goldDark,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    borderColor: theme.colors.primaryHover,
+    shadowColor: theme.colors.primary,
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
 
   pressed: {
-    opacity: 0.94,
+    backgroundColor: theme.colors.primaryHover,
+    opacity: 0.96,
     transform: [{ translateY: 1 }],
   },
 
@@ -57,9 +58,9 @@ const styles = StyleSheet.create({
   },
 
   text: {
-    color: "#0F0F10",
-    fontWeight: "900",
-    fontSize: 15,
-    letterSpacing: 0.2,
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 14,
+    letterSpacing: 0.1,
   },
 });

@@ -6,6 +6,7 @@ import Screen from "../../src/components/Screen";
 import GoldButton from "../../src/components/GoldButton";
 import { supabase } from "../../src/lib/supabase";
 import { theme } from "../../src/theme/theme";
+import { ui } from "../../src/theme/ui";
 
 type ProfileRow = {
   user_id: string;
@@ -52,9 +53,9 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <View style={styles.sectionCard}>
+    <View style={[ui.sectionCard, styles.sectionCard]}>
       <View style={styles.sectionTop}>
-        <View style={styles.sectionIconWrap}>
+        <View style={ui.sectionIconWrap}>
           <Ionicons name={icon} size={18} color={theme.colors.goldDark} />
         </View>
 
@@ -80,7 +81,7 @@ function ChoicePill({
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.pill, active ? styles.pillActive : null]}>
-      <Text style={[styles.pillText, active ? styles.pillTextActive : null]}>{label}</Text>
+      <Text style={[ui.pillText, active ? ui.pillTextActive : null]}>{label}</Text>
     </Pressable>
   );
 }
@@ -238,9 +239,17 @@ export default function ProfilePage() {
       setSaving(true);
 
       const blob = await (await fetch(uri)).blob();
-      const ext = (asset?.fileName?.split(".").pop() || "jpg").toLowerCase();
-      const contentType = blob.type || (ext === "png" ? "image/png" : "image/jpeg");
-      const fileName = `avatar.${ext === "png" ? "png" : "jpg"}`;
+      const ext = (asset?.fileName?.split(".").pop() || "").toLowerCase();
+      const mimeType = asset?.mimeType || blob.type || "";
+      const safeExt =
+        ext === "png" || mimeType.includes("png")
+          ? "png"
+          : ext === "webp" || mimeType.includes("webp")
+            ? "webp"
+            : "jpg";
+      const contentType =
+        safeExt === "png" ? "image/png" : safeExt === "webp" ? "image/webp" : "image/jpeg";
+      const fileName = `avatar-${Date.now()}.${safeExt}`;
       const path = `${userId}/${fileName}`;
 
       const uploadBody =
@@ -248,7 +257,7 @@ export default function ProfilePage() {
 
       const upload = await supabase.storage
         .from("avatars")
-        .upload(path, uploadBody, { upsert: true, contentType });
+        .upload(path, uploadBody, { cacheControl: "3600", upsert: false, contentType });
 
       if (upload.error) throw new Error(upload.error.message);
 
@@ -284,14 +293,14 @@ export default function ProfilePage() {
         </View>
 
         {pageError ? (
-          <View style={styles.bannerError}>
-            <Text style={styles.bannerErrorText}>{pageError}</Text>
+          <View style={ui.bannerError}>
+            <Text style={ui.bannerErrorText}>{pageError}</Text>
           </View>
         ) : null}
 
         {pageMessage ? (
-          <View style={styles.bannerSuccess}>
-            <Text style={styles.bannerSuccessText}>{pageMessage}</Text>
+          <View style={ui.bannerSuccess}>
+            <Text style={ui.bannerSuccessText}>{pageMessage}</Text>
           </View>
         ) : null}
 
@@ -318,7 +327,7 @@ export default function ProfilePage() {
                 disabled={saving || loading || !userId}
                 style={{ minWidth: 160 }}
               />
-              <Text style={styles.helper}>Recommended: square image, 512×512 or larger.</Text>
+              <Text style={styles.helper}>Recommended: square image, 512x512 or larger.</Text>
             </View>
           </View>
         </SectionCard>
@@ -372,7 +381,7 @@ export default function ProfilePage() {
                 value={accountEmail}
                 editable={false}
                 placeholderTextColor={theme.colors.muted}
-                style={[styles.input, styles.inputDisabled]}
+                style={[styles.input, ui.inputDisabled]}
               />
             </View>
           </View>
@@ -426,16 +435,16 @@ export default function ProfilePage() {
 const PAGE_BG = "#f7f3ea";
 const CARD_BG = "#fffdf8";
 const BORDER = "#e4d6b2";
-const GOLD = "#c9a227";
+const GOLD = "#2563EB";
 const DARK_CARD = "#111111";
-const DARK_BORDER = "rgba(212, 175, 55, 0.35)";
+const DARK_BORDER = "rgba(37, 99, 235, 0.28)";
 
 const styles = StyleSheet.create({
   page: {
     flex: 1,
     padding: 24,
     gap: 16,
-    backgroundColor: PAGE_BG,
+    backgroundColor: theme.colors.bg,
   },
 
   hero: {
@@ -475,16 +484,7 @@ const styles = StyleSheet.create({
   },
 
   sectionCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: BORDER,
     padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
   },
 
   sectionTop: {
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: "rgba(212, 175, 55, 0.14)",
+    backgroundColor: "rgba(37, 99, 235, 0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -542,21 +542,7 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 15,
-    fontWeight: "700",
-    color: theme.colors.ink,
-    backgroundColor: CARD_BG,
-  },
-
-  inputDisabled: {
-    opacity: 0.7,
-    backgroundColor: "#f3eee3",
+    ...ui.input,
   },
 
   miniHeading: {
@@ -573,57 +559,11 @@ const styles = StyleSheet.create({
   },
 
   pill: {
-    minHeight: 36,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_BG,
-    alignItems: "center",
-    justifyContent: "center",
+    ...ui.pill,
   },
 
   pillActive: {
-    backgroundColor: "#F5E6B8",
-    borderColor: GOLD,
-  },
-
-  pillText: {
-    color: theme.colors.ink,
-    fontWeight: "800",
-    fontSize: 12.5,
-  },
-
-  pillTextActive: {
-    color: theme.colors.goldDark,
-  },
-
-  bannerError: {
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  bannerErrorText: {
-    color: "#991b1b",
-    fontWeight: "800",
-  },
-
-  bannerSuccess: {
-    borderWidth: 1,
-    borderColor: "#bbf7d0",
-    backgroundColor: "#f0fdf4",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  bannerSuccessText: {
-    color: "#166534",
-    fontWeight: "800",
+    ...ui.pillActive,
   },
 
   photoRow: {

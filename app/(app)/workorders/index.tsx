@@ -1,14 +1,29 @@
+
 import { useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Screen from "../../../src/components/Screen";
+import {
+  AppPage,
+  ContentCard,
+  PageHeader,
+  SummaryCard,
+  SummaryStrip,
+} from "../../../src/components/AppPage";
+import EmptyState from "../../../src/components/EmptyState";
 import { getUserOrgId } from "../../../src/lib/auth";
+import { logActivity } from "../../../src/lib/activity";
 import { formatWorkOrderNumber } from "../../../src/lib/format";
 import { supabase } from "../../../src/lib/supabase";
+import { theme } from "../../../src/theme/theme";
 
 type WorkOrderStatus = "Open" | "Scheduled" | "In Progress" | "On Hold" | "Closed";
 type ReviewStatus = "draft" | "submitted_for_review" | "in_review" | "priced";
+type Priority = "urgent" | "high" | "normal" | "low";
+type SavedView = "all" | "my_jobs" | "needs_review" | "priced" | "closed" | "archived";
+type SortKey = "number" | "due" | "updated" | "priority";
+type ViewMode = "table" | "card";
 
 type WorkOrderListItem = {
   id: string;
@@ -22,6 +37,8 @@ type WorkOrderListItem = {
   assignedDisplayName?: string;
   templateName?: string;
   reviewStatus?: ReviewStatus;
+  priority: Priority;
+  archivedAt?: string;
 };
 
 const STATUS_FILTERS: Array<"All" | WorkOrderStatus | "Needs Review" | "Priced"> = [
@@ -35,6 +52,15 @@ const STATUS_FILTERS: Array<"All" | WorkOrderStatus | "Needs Review" | "Priced">
   "Priced",
 ];
 
+const SAVED_VIEWS: { key: SavedView; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "my_jobs", label: "My Jobs" },
+  { key: "needs_review", label: "Needs Review" },
+  { key: "priced", label: "Ready to Price" },
+  { key: "closed", label: "Closed" },
+  { key: "archived", label: "Archived" },
+];
+
 const REVIEW_ROLES = [
   "owner",
   "general_manager",
@@ -45,21 +71,14 @@ const REVIEW_ROLES = [
   "office_admin",
 ] as const;
 
-const PAGE_BG = "#f7f3ea";
-const CARD_BG = "#fffdf8";
-const CARD_WHITE = "#ffffff";
-const BORDER = "#e4d6b2";
-const BORDER_STRONG = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const GOLD_SOFT = "#f5e6b8";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#8b7a60";
-const HERO_BG = "#111111";
+const DELETE_ROLES = ["owner", "general_manager", "operations_manager"] as const;
 
 function canCreateOrReview(role: string) {
   return REVIEW_ROLES.includes(role as (typeof REVIEW_ROLES)[number]);
+}
+
+function canDeleteWorkOrders(role: string) {
+  return DELETE_ROLES.includes(role as (typeof DELETE_ROLES)[number]);
 }
 
 function safeJsonParse<T>(value?: string | null): T | null {
@@ -78,71 +97,89 @@ function parseMeta(description?: string | null) {
   return safeJsonParse<any>(description) ?? {};
 }
 
+function parsePriority(row: any, meta: any): Priority {
+  const fromRow = String(row.priority ?? "").toLowerCase();
+  const fromMeta = String(meta?.priority ?? "").toLowerCase();
+  const value = fromRow || fromMeta;
+  if (value === "urgent" || value === "high" || value === "low") return value;
+  return "normal";
+}
+
 function formatDueDate(value?: string) {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString();
 }
 
-function StatCard({
-  label,
-  value,
-  subtitle,
-}: {
-  label: string;
-  value: string;
-  subtitle: string;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statSubtitle}>{subtitle}</Text>
-    </View>
-  );
+function isWorkOrderOverdue(item: WorkOrderListItem) {
+  if (!item.dueDate || item.archivedAt) return false;
+
+  const normalizedStatus = String(item.status ?? "").toLowerCase();
+  if (["closed", "completed", "canceled", "cancelled"].includes(normalizedStatus)) return false;
+
+  const due = new Date(item.dueDate);
+  if (Number.isNaN(due.getTime())) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return due < today;
 }
 
-function QuickAction({
-  label,
-  onPress,
-  primary,
-}: {
-  label: string;
-  onPress?: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.quickAction,
-        primary ? styles.quickActionPrimary : null,
-        pressed ? styles.pressed : null,
-      ]}
-    >
-      <Text style={[styles.quickActionText, primary ? styles.quickActionTextPrimary : null]}>{label}</Text>
-    </Pressable>
-  );
+function formatRelativeTime(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return `${Math.floor(diffDays / 7)}w ago`;
+}
+
+function priorityWeight(priority: Priority) {
+  if (priority === "urgent") return 4;
+  if (priority === "high") return 3;
+  if (priority === "normal") return 2;
+  return 1;
 }
 
 function statusChipStyle(label: string) {
+  if (label === "Archived") return styles.statusArchived;
   if (label === "Priced") return styles.statusClosed;
-  if (label === "Needs Review") return styles.statusScheduled;
+  if (label === "Needs Review" || label === "In Review") return styles.statusReview;
 
   switch (label) {
     case "Open":
       return styles.statusOpen;
     case "Scheduled":
-      return styles.statusScheduled;
+      return styles.statusReview;
     case "In Progress":
-      return styles.statusInProgress;
+      return styles.statusProgress;
     case "On Hold":
-      return styles.statusOnHold;
+      return styles.statusHold;
     case "Closed":
       return styles.statusClosed;
     default:
       return styles.statusOpen;
+  }
+}
+
+function priorityBadgeStyle(priority: Priority) {
+  switch (priority) {
+    case "urgent":
+      return styles.priorityUrgent;
+    case "high":
+      return styles.priorityHigh;
+    case "low":
+      return styles.priorityLow;
+    default:
+      return styles.priorityNormal;
   }
 }
 
@@ -157,6 +194,11 @@ export default function WorkOrdersIndex() {
   const [orgId, setOrgId] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("viewer");
+  const [savedView, setSavedView] = useState<SavedView>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [deletingId, setDeletingId] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState("");
 
   useEffect(() => {
     void loadWorkOrders();
@@ -164,7 +206,6 @@ export default function WorkOrdersIndex() {
 
   async function resolveOrgId() {
     const { data: auth, error } = await supabase.auth.getUser();
-
     if (error) throw new Error(error.message);
 
     const userId = auth.user?.id;
@@ -200,10 +241,10 @@ export default function WorkOrdersIndex() {
 
       const response = await supabase
         .from("work_orders")
-        .select("id, work_order_number, title, client_name, status, due_date, updated_at, description")
+        .select("id, work_order_number, title, client_name, status, due_date, updated_at, description, priority")
         .eq("org_id", activeOrgId)
         .order("work_order_number", { ascending: false })
-        .limit(200);
+        .limit(300);
 
       if (response.error) throw new Error(response.error.message);
 
@@ -213,7 +254,7 @@ export default function WorkOrdersIndex() {
           id: row.id,
           workOrderNumber: row.work_order_number ?? null,
           title: row.title ?? "Work Order",
-          clientName: row.client_name ?? "—",
+          clientName: row.client_name ?? "-",
           status: (row.status ?? "Open") as WorkOrderStatus,
           dueDate: row.due_date ?? undefined,
           updatedAt: row.updated_at ?? undefined,
@@ -221,6 +262,8 @@ export default function WorkOrdersIndex() {
           assignedDisplayName: meta.assignedTo?.displayName ?? undefined,
           templateName: meta.selectedTemplateLabel ?? meta.selectedTemplateName ?? "General",
           reviewStatus: meta.reviewWorkflow?.status ?? "draft",
+          priority: parsePriority(row, meta),
+          archivedAt: meta.archivedAt ?? undefined,
         };
       });
 
@@ -237,144 +280,294 @@ export default function WorkOrdersIndex() {
     }
   }
 
+  const activeItems = useMemo(
+    () => items.filter((item) => !item.archivedAt),
+    [items]
+  );
+  const alertReviewCount = useMemo(
+    () => activeItems.filter((item) => item.reviewStatus === "submitted_for_review").length,
+    [activeItems]
+  );
+  const alertOverdueCount = useMemo(() => {
+    return activeItems.filter((item) => isWorkOrderOverdue(item)).length;
+  }, [activeItems]);
+  const alertUnassignedCount = useMemo(
+    () => activeItems.filter((item) => !item.assignedUserId).length,
+    [activeItems]
+  );
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return items
-      .filter((item) => {
-        if (status === "All") return true;
-        if (status === "Needs Review") {
-          return item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review";
-        }
-        if (status === "Priced") {
-          return item.reviewStatus === "priced";
-        }
-        return item.status === status;
-      })
-      .filter((item) => {
-        if (templateFilter !== "All Templates" && (item.templateName ?? "General") !== templateFilter) {
-          return false;
-        }
+    let result = (savedView === "archived" ? items.filter((item) => item.archivedAt) : activeItems).filter((item) => {
+      if (savedView === "my_jobs") return item.assignedUserId === currentUserId;
+      if (savedView === "needs_review") {
+        return item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review";
+      }
+      if (savedView === "priced") return item.reviewStatus === "priced";
+      if (savedView === "closed") return item.status === "Closed";
+      if (savedView === "archived") return !!item.archivedAt;
+      return true;
+    });
 
-        if (!normalizedQuery) return true;
+    result = result.filter((item) => {
+      if (status === "All") return true;
+      if (status === "Needs Review") {
+        return item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review";
+      }
+      if (status === "Priced") {
+        return item.reviewStatus === "priced";
+      }
+      return item.status === status;
+    });
 
-        return (
-          item.title.toLowerCase().includes(normalizedQuery) ||
-          item.clientName.toLowerCase().includes(normalizedQuery) ||
-          String(item.workOrderNumber ?? "").includes(normalizedQuery) ||
-          item.assignedDisplayName?.toLowerCase().includes(normalizedQuery) ||
-          item.templateName?.toLowerCase().includes(normalizedQuery) ||
-          item.id.toLowerCase().includes(normalizedQuery)
-        );
-      });
-  }, [items, query, status, templateFilter]);
+    result = result.filter((item) => {
+      if (templateFilter !== "All Templates" && (item.templateName ?? "General") !== templateFilter) {
+        return false;
+      }
 
-  const totalCount = items.length;
+      if (!normalizedQuery) return true;
+
+      return (
+        item.title.toLowerCase().includes(normalizedQuery) ||
+        item.clientName.toLowerCase().includes(normalizedQuery) ||
+        String(item.workOrderNumber ?? "").includes(normalizedQuery) ||
+        item.assignedDisplayName?.toLowerCase().includes(normalizedQuery) ||
+        item.templateName?.toLowerCase().includes(normalizedQuery) ||
+        item.id.toLowerCase().includes(normalizedQuery)
+      );
+    });
+
+    return [...result].sort((a, b) => {
+      if (sortKey === "number") return (b.workOrderNumber ?? 0) - (a.workOrderNumber ?? 0);
+      if (sortKey === "due") return String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? ""));
+      if (sortKey === "priority") return priorityWeight(b.priority) - priorityWeight(a.priority);
+      return String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""));
+    });
+  }, [items, activeItems, query, status, templateFilter, savedView, sortKey, currentUserId]);
+
+  const totalCount = activeItems.length;
   const openCount = useMemo(
-    () => items.filter((item) => ["Open", "Scheduled", "In Progress", "On Hold"].includes(item.status)).length,
-    [items]
+    () => activeItems.filter((item) => ["Open", "Scheduled", "In Progress", "On Hold"].includes(item.status)).length,
+    [activeItems]
   );
   const needsReviewCount = useMemo(
-    () => items.filter((item) => item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review").length,
-    [items]
+    () => activeItems.filter((item) => item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review").length,
+    [activeItems]
   );
-  const closedCount = useMemo(() => items.filter((item) => item.status === "Closed").length, [items]);
+  const pricedCount = useMemo(
+    () => activeItems.filter((item) => item.reviewStatus === "priced").length,
+    [activeItems]
+  );
 
   const templateFilters = useMemo(() => {
-    const values = Array.from(new Set(items.map((item) => item.templateName || "General"))).sort((a, b) => a.localeCompare(b));
+    const source = savedView === "archived" ? items.filter((item) => item.archivedAt) : activeItems;
+    const values = Array.from(new Set(source.map((item) => item.templateName || "General"))).sort((a, b) => a.localeCompare(b));
     return ["All Templates", ...values];
-  }, [items]);
+  }, [activeItems, items, savedView]);
+
+  const pageActions = [
+    { label: "Refresh", onPress: () => void loadWorkOrders() },
+    ...(canCreateOrReview(currentUserRole)
+      ? [{ label: "New Work Order", primary: true as const, onPress: () => router.push("/workorders/new") }]
+      : []),
+  ];
+  const canDeleteRows = canDeleteWorkOrders(currentUserRole);
+
+  const showEmpty = !loading && filtered.length === 0;
+
+  async function deleteWorkOrderManually(item: WorkOrderListItem, activeOrgId: string) {
+    const invoiceRes = await supabase
+      .from("invoices")
+      .update({ work_order_id: null })
+      .eq("work_order_id", item.id)
+      .eq("org_id", activeOrgId);
+
+    if (invoiceRes.error) throw new Error(invoiceRes.error.message);
+
+    const itemRes = await supabase
+      .from("work_order_items")
+      .delete()
+      .eq("work_order_id", item.id)
+      .eq("org_id", activeOrgId);
+
+    if (itemRes.error) throw new Error(itemRes.error.message);
+
+    const workOrderRes = await supabase
+      .from("work_orders")
+      .delete()
+      .eq("id", item.id)
+      .eq("org_id", activeOrgId);
+
+    if (workOrderRes.error) throw new Error(workOrderRes.error.message);
+  }
+
+  async function deleteWorkOrder(item: WorkOrderListItem) {
+    if (deletingId) return;
+
+    if (confirmDeleteId !== item.id) {
+      setConfirmDeleteId(item.id);
+      setTimeout(() => setConfirmDeleteId((prev) => (prev === item.id ? "" : prev)), 3000);
+      return;
+    }
+
+    setConfirmDeleteId("");
+    setDeletingId(item.id);
+
+    try {
+      const resolved = orgId ? { orgId, userId: currentUserId } : await resolveOrgId();
+      const activeOrgId = resolved.orgId;
+      const activeUserId = currentUserId || resolved.userId;
+      let usedManualDelete = false;
+      const res = await supabase.rpc("delete_work_order_with_activity", {
+        p_work_order_id: item.id,
+      });
+
+      if (res.error) {
+        await deleteWorkOrderManually(item, activeOrgId);
+        usedManualDelete = true;
+      }
+
+      setItems((prev) => prev.filter((row) => row.id !== item.id));
+      if (usedManualDelete) {
+        void logActivity(supabase, {
+          org_id: activeOrgId,
+          actor_user_id: activeUserId || null,
+          actor_name: null,
+          action: "deleted",
+          entity_type: "work_order",
+          entity_id: item.id,
+          title: "Deleted work order",
+          description: `deleted ${formatWorkOrderNumber(item.workOrderNumber)}`,
+          details: {
+            work_order_id: item.id,
+            work_order_number: formatWorkOrderNumber(item.workOrderNumber),
+            title: item.title,
+            client_name: item.clientName,
+          },
+        });
+      }
+    } catch (error: any) {
+      Alert.alert("Delete failed", error?.message ?? "Failed to delete work order.");
+    } finally {
+      setDeletingId("");
+    }
+  }
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.pagePad} showsVerticalScrollIndicator={false}>
-        <View style={styles.pageInner}>
-          <View style={styles.hero}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroEyebrow}>Workflow</Text>
-              <Text style={styles.heroTitle}>Field-ready work order pipeline</Text>
-              <Text style={styles.heroSubtitle}>
-                {canCreateOrReview(currentUserRole)
-                  ? "Create, assign, review, and price jobs in the same black-and-gold workflow used across the dashboard."
-                  : "View your assigned work orders, complete the template, and send finished jobs in for review."}
-              </Text>
+      <AppPage>
+        <PageHeader
+          eyebrow="Work Orders"
+          title="Pipeline"
+          subtitle={
+            canCreateOrReview(currentUserRole)
+              ? "Saved views, advanced search, sorting, and filtering controls to manage your work orders with ease."
+              : "Track your assigned work orders in a cleaner workspace with quicker review context."
+          }
+          actions={pageActions}
+        />
 
-              <View style={styles.headerActions}>
-                <QuickAction label="Refresh" onPress={() => void loadWorkOrders()} />
-                {canCreateOrReview(currentUserRole) ? (
-                  <QuickAction label="New Work Order" primary onPress={() => router.push("/workorders/new")} />
-                ) : null}
+        {alertReviewCount > 0 || alertOverdueCount > 0 || alertUnassignedCount > 0 ? (
+          <View style={styles.alertsStrip}>
+            {alertReviewCount > 0 ? (
+              <View style={[styles.alertChip, styles.alertChipBlue]}>
+                <Text style={styles.alertChipText}>{alertReviewCount} waiting for review</Text>
               </View>
-
-              <View style={styles.heroPills}>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>{totalCount} total</Text>
-                </View>
-                <View style={styles.heroPill}>
-                  <Text style={styles.heroPillText}>{needsReviewCount} needing review</Text>
-                </View>
+            ) : null}
+            {alertOverdueCount > 0 ? (
+              <View style={[styles.alertChip, styles.alertChipRed]}>
+                <Text style={styles.alertChipText}>{alertOverdueCount} overdue</Text>
               </View>
-            </View>
-
-            <View style={styles.heroPanel}>
-              <Text style={styles.heroPanelLabel}>Current view</Text>
-              <Text style={styles.heroPanelValue}>
-                {canCreateOrReview(currentUserRole) ? "Manager / owner workflow" : "Assigned technician view"}
-              </Text>
-              <Text style={styles.heroPanelText}>
-                {canCreateOrReview(currentUserRole)
-                  ? "You can create, assign, review, and price work orders."
-                  : "You only see work orders assigned to your account."}
-              </Text>
-            </View>
+            ) : null}
+            {alertUnassignedCount > 0 ? (
+              <View style={[styles.alertChip, styles.alertChipAmber]}>
+                <Text style={styles.alertChipText}>{alertUnassignedCount} unassigned</Text>
+              </View>
+            ) : null}
           </View>
+        ) : null}
 
-          <View style={styles.statsRow}>
-            <StatCard label="Total Work Orders" value={String(totalCount)} subtitle="All visible records" />
-            <StatCard label="Open Pipeline" value={String(openCount)} subtitle="Open, scheduled, active, on hold" />
-            <StatCard label="Needs Review" value={String(needsReviewCount)} subtitle="Submitted or under review" />
-            <StatCard label="Closed" value={String(closedCount)} subtitle="Completed work orders" />
-          </View>
+        <SummaryStrip>
+          <SummaryCard label="Open" value={String(openCount)} meta="Active pipeline" accent="indigo" trend={{ value: alertOverdueCount ? `${alertOverdueCount} overdue` : "On track", tone: alertOverdueCount ? "negative" : "positive" }} />
+          <SummaryCard label="Needs Review" value={String(needsReviewCount)} meta="Submitted or in review" accent="violet" trend={{ value: alertReviewCount ? `${alertReviewCount} awaiting action` : "No review backlog", tone: alertReviewCount ? "negative" : "positive" }} />
+          <SummaryCard label="Ready to Price" value={String(pricedCount)} meta="Approved for pricing" accent="lavender" trend={{ value: pricedCount ? `${pricedCount} ready now` : "Nothing queued", tone: "neutral" }} />
+          <SummaryCard label="Total" value={String(totalCount)} meta="Visible records" accent="purple" trend={{ value: `${filtered.length} in current view`, tone: "neutral" }} />
+        </SummaryStrip>
 
-          <View style={styles.controlsCard}>
-            <View style={styles.controlsTop}>
-              <View style={styles.controlsCopy}>
-                <Text style={styles.cardEyebrow}>Filters</Text>
-                <Text style={styles.cardTitle}>Search and narrow results</Text>
-                <Text style={styles.cardSubtitle}>Find by work order, client, template, assignee, or stage.</Text>
-              </View>
+        <ContentCard title="Pipeline controls" subtitle="Saved views, search, sort, and filter controls from the richer workspace pattern." meta={loading ? "Loading..." : `${filtered.length} shown`}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+            {SAVED_VIEWS.map((view) => {
+              const active = savedView === view.key;
+              return (
+                <Pressable
+                  key={view.key}
+                  onPress={() => setSavedView(view.key)}
+                  style={({ pressed }) => [styles.filterPill, active ? styles.savedViewActive : null, pressed ? styles.pressed : null]}
+                >
+                  <Text style={[styles.filterPillText, active ? styles.savedViewActiveText : null]}>{view.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
-              <Text style={styles.cardMeta}>{loading ? "Loading..." : `${filtered.length} shown`}</Text>
-            </View>
-
-            <View style={styles.divider} />
-
+          <View style={styles.controlsRow}>
             <View style={styles.searchWrap}>
-              <Ionicons name="search" size={16} color={MUTED_2} />
+              <Ionicons name="search" size={16} color={theme.colors.muted} />
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search title, client, template, or assignee..."
-                placeholderTextColor={MUTED}
+                placeholder="Search title, client, template, or assignee"
+                placeholderTextColor={theme.colors.muted}
                 style={styles.search}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
             </View>
 
+            <View style={styles.viewModeRow}>
+              {([
+                ["table", "list-outline"],
+                ["card", "grid-outline"],
+              ] as const).map(([mode, icon]) => {
+                const active = viewMode === mode;
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setViewMode(mode)}
+                    style={({ pressed }) => [styles.viewModeBtn, active ? styles.viewModeBtnActive : null, pressed ? styles.pressed : null]}
+                  >
+                    <Ionicons name={icon} size={16} color={active ? theme.colors.goldDark : theme.colors.muted} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.controlsRow}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
               {STATUS_FILTERS.map((value) => {
                 const active = value === status;
-
                 return (
                   <Pressable
                     key={value}
                     onPress={() => setStatus(value)}
-                    style={({ pressed }) => [
-                      styles.filterPill,
-                      active ? styles.filterPillActive : null,
-                      pressed ? styles.pressed : null,
-                    ]}
+                    style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
+                  >
+                    <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+          <View style={styles.controlsRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+              {templateFilters.map((value) => {
+                const active = value === templateFilter;
+                return (
+                  <Pressable
+                    key={value}
+                    onPress={() => setTemplateFilter(value)}
+                    style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
                   >
                     <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
                   </Pressable>
@@ -382,637 +575,575 @@ export default function WorkOrdersIndex() {
               })}
             </ScrollView>
 
-            <View style={styles.templateFilterBlock}>
-              <Text style={styles.templateFilterLabel}>Template</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-                {templateFilters.map((value) => {
-                  const active = value === templateFilter;
-
-                  return (
-                    <Pressable
-                      key={value}
-                      onPress={() => setTemplateFilter(value)}
-                      style={({ pressed }) => [
-                        styles.filterPill,
-                        active ? styles.filterPillActive : null,
-                        pressed ? styles.pressed : null,
-                      ]}
-                    >
-                      <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+              {([
+                ["updated", "Updated"],
+                ["number", "WO #"],
+                ["priority", "Priority"],
+                ["due", "Due Date"],
+              ] as const).map(([key, label]) => {
+                const active = sortKey === key;
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => setSortKey(key)}
+                    style={({ pressed }) => [styles.filterPill, active ? styles.sortPillActive : null, pressed ? styles.pressed : null]}
+                  >
+                    <Text style={[styles.filterPillText, active ? styles.sortPillActiveText : null]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
+        </ContentCard>
 
-          <View style={styles.tableCard}>
-            <View style={styles.tableHeaderTop}>
-              <View>
-                <Text style={styles.cardEyebrow}>Records</Text>
-                <Text style={styles.cardTitle}>Recent work orders</Text>
-                <Text style={styles.cardSubtitle}>Assignment-aware workflow list</Text>
-              </View>
+        <ContentCard
+          title={viewMode === "table" ? "Work order table" : "Work order cards"}
+          subtitle="Closer to the reference workspace: denser records plus clearer operational signals."
+        >
+          {loading ? (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyTitle}>Loading work orders...</Text>
             </View>
-
-            <View style={styles.divider} />
-
-            {loading ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.empty}>Loading work orders...</Text>
-              </View>
-            ) : filtered.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.empty}>No work orders found.</Text>
-                <Text style={styles.emptySub}>
-                  {canCreateOrReview(currentUserRole)
-                    ? "Create a work order and build the template before assigning it to a technician."
-                    : "You do not have any assigned work orders yet."}
-                </Text>
-              </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.table}>
-                  <View style={styles.tableHead}>
-                    <Text style={[styles.th, styles.colId]}>Work Order</Text>
-                    <Text style={[styles.th, styles.colTitle]}>Title</Text>
-                    <Text style={[styles.th, styles.colClient]}>Client</Text>
-                    <Text style={[styles.th, styles.colTemplate]}>Template</Text>
-                    <Text style={[styles.th, styles.colAssigned]}>Assigned</Text>
-                    <Text style={[styles.th, styles.colStatus]}>Stage</Text>
-                    <Text style={[styles.th, styles.colDue]}>Due</Text>
-                  </View>
-
-                  {filtered.map((item, index) => {
-                    const stageLabel =
-                      item.reviewStatus === "priced"
-                        ? "Priced"
-                        : item.reviewStatus === "in_review"
+          ) : showEmpty ? (
+            <EmptyState
+              icon="clipboard-outline"
+              title={canCreateOrReview(currentUserRole) ? "No work orders yet" : "No assigned work orders"}
+              body={
+                canCreateOrReview(currentUserRole)
+                  ? "Create your first work order to start tracking jobs, reviews, and pricing in one place."
+                  : "Once a manager assigns you work, those jobs will appear here automatically."
+              }
+              actionLabel={canCreateOrReview(currentUserRole) ? "New Work Order" : undefined}
+              onAction={canCreateOrReview(currentUserRole) ? () => router.push("/workorders/new") : undefined}
+            />
+          ) : viewMode === "card" ? (
+            <View style={styles.cardGrid}>
+              {filtered.map((item) => {
+                const isOverdue = isWorkOrderOverdue(item);
+                const stageLabel =
+                  item.archivedAt
+                    ? "Archived"
+                    : item.reviewStatus === "priced"
+                      ? "Priced"
+                      : item.reviewStatus === "in_review"
                         ? "In Review"
                         : item.reviewStatus === "submitted_for_review"
-                        ? "Needs Review"
-                        : item.status;
+                          ? "Needs Review"
+                          : item.status;
 
-                    return (
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
+                    style={({ pressed }) => [styles.woCard, pressed ? styles.woCardPressed : null]}
+                  >
+                    <View style={styles.woCardHeader}>
+                      <Text style={styles.woCardNumber}>{formatWorkOrderNumber(item.workOrderNumber)}</Text>
+                      <View style={{ flex: 1 }} />
+                      {isOverdue ? (
+                        <View style={styles.overdueBubble}>
+                          <Text style={styles.overdueBubbleText}>Overdue</Text>
+                        </View>
+                      ) : null}
+                      <View style={[styles.priorityBadge, priorityBadgeStyle(item.priority)]}>
+                        <Text style={styles.priorityBadgeText}>{item.priority.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.woCardTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.woCardMeta}>{item.clientName}</Text>
+                    <View style={styles.woCardMetaRow}>
+                      <View style={[styles.statusChip, statusChipStyle(stageLabel)]}>
+                        <Text style={styles.statusText}>{stageLabel}</Text>
+                      </View>
+                      <Text style={styles.woCardMetaMuted}>Due {formatDueDate(item.dueDate)}</Text>
+                    </View>
+                    <Text style={styles.woCardMetaMuted}>Assigned to {item.assignedDisplayName || "Unassigned"}</Text>
+                    {canDeleteRows ? (
                       <Pressable
-                        key={item.id}
-                        onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          void deleteWorkOrder(item);
+                        }}
+                        disabled={deletingId === item.id}
                         style={({ pressed }) => [
-                          styles.tr,
-                          index % 2 === 0 ? styles.trStriped : null,
-                          pressed ? styles.trPressed : null,
+                          styles.deleteBtn,
+                          confirmDeleteId === item.id ? styles.deleteBtnConfirm : null,
+                          deletingId === item.id ? styles.disabledBtn : null,
+                          pressed ? styles.pressed : null,
                         ]}
                       >
-                        <Text style={[styles.td, styles.colId]} numberOfLines={1}>
-                          {formatWorkOrderNumber(item.workOrderNumber)}
-                        </Text>
+                        {deletingId === item.id ? (
+                          <Text style={styles.deleteBtnText}>...</Text>
+                        ) : confirmDeleteId === item.id ? (
+                          <Text style={styles.deleteBtnText}>Sure?</Text>
+                        ) : (
+                          <Ionicons name="trash-outline" size={13} color="#B91C1C" />
+                        )}
+                      </Pressable>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.table}>
+                <View style={styles.tableHead}>
+                  <View style={styles.tableHeadMain}>
+                    <Text style={[styles.th, styles.colId]}>WO #</Text>
+                    <Text style={[styles.th, styles.colTitle]}>Title</Text>
+                    <Text style={[styles.th, styles.colClient]}>Client</Text>
+                    <Text style={[styles.th, styles.colAssigned]}>Assigned</Text>
+                    <Text style={[styles.th, styles.colPriority]}>Priority</Text>
+                    <Text style={[styles.th, styles.colStatus]}>Stage</Text>
+                    <Text style={[styles.th, styles.colDue]}>Due</Text>
+                    <Text style={[styles.th, styles.colUpdated]}>Updated</Text>
+                  </View>
+                  <View style={styles.tableHeadActions}>
+                    <Text style={styles.th}>Actions</Text>
+                  </View>
+                </View>
 
-                        <Text style={[styles.td, styles.colTitle]} numberOfLines={1}>
-                          {item.title}
-                        </Text>
+                {filtered.map((item, index) => {
+                  const isOverdue = isWorkOrderOverdue(item);
+                  const stageLabel =
+                    item.archivedAt
+                      ? "Archived"
+                      : item.reviewStatus === "priced"
+                        ? "Priced"
+                        : item.reviewStatus === "in_review"
+                          ? "In Review"
+                          : item.reviewStatus === "submitted_for_review"
+                            ? "Needs Review"
+                            : item.status;
 
-                        <Text style={[styles.td, styles.colClient]} numberOfLines={1}>
-                          {item.clientName}
-                        </Text>
-
-                        <Text style={[styles.td, styles.colTemplate]} numberOfLines={1}>
-                          {item.templateName || "General"}
-                        </Text>
-
-                        <Text style={[styles.td, styles.colAssigned]} numberOfLines={1}>
-                          {item.assignedDisplayName || "Unassigned"}
-                        </Text>
-
+                  return (
+                    <View key={item.id} style={[styles.tr, index % 2 === 1 ? styles.trStriped : null]}>
+                      <Pressable
+                        onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
+                        style={({ pressed }) => [styles.rowMain, pressed ? styles.trPressed : null]}
+                      >
+                        <Text style={[styles.td, styles.colId]} numberOfLines={1}>{formatWorkOrderNumber(item.workOrderNumber)}</Text>
+                        <Text style={[styles.td, styles.colTitle]} numberOfLines={1}>{item.title}</Text>
+                        <Text style={[styles.td, styles.colClient]} numberOfLines={1}>{item.clientName}</Text>
+                        <Text style={[styles.td, styles.colAssigned]} numberOfLines={1}>{item.assignedDisplayName || "Unassigned"}</Text>
+                        <View style={[styles.priorityBadge, styles.colPriority, priorityBadgeStyle(item.priority)]}>
+                          <Text style={styles.priorityBadgeText}>{item.priority.toUpperCase()}</Text>
+                        </View>
                         <View style={[styles.statusChip, styles.colStatus, statusChipStyle(stageLabel)]}>
                           <Text style={styles.statusText}>{stageLabel}</Text>
                         </View>
-
-                        <Text style={[styles.td, styles.colDue]}>{formatDueDate(item.dueDate)}</Text>
+                        <View style={[styles.colDue, styles.dueCell]}>
+                          <Text style={[styles.td, isOverdue ? styles.dueTextOverdue : null]}>{formatDueDate(item.dueDate)}</Text>
+                          {isOverdue ? (
+                            <View style={styles.overdueBubble}>
+                              <Text style={styles.overdueBubbleText}>Overdue</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={[styles.td, styles.colUpdated]}>{formatRelativeTime(item.updatedAt)}</Text>
                       </Pressable>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </ScrollView>
+
+                      <View style={styles.actionCell}>
+                        <Pressable
+                          onPress={() => router.push(`/workorders/${encodeURIComponent(item.id)}`)}
+                          style={({ pressed }) => [styles.openBtn, pressed ? styles.pressed : null]}
+                        >
+                          <Ionicons name="open-outline" size={13} color={theme.colors.ink} />
+                          <Text style={styles.openBtnText}>Open</Text>
+                        </Pressable>
+                        {canDeleteRows ? (
+                          <Pressable
+                            onPress={() => void deleteWorkOrder(item)}
+                            disabled={deletingId === item.id}
+                            style={({ pressed }) => [
+                              styles.deleteBtn,
+                              confirmDeleteId === item.id ? styles.deleteBtnConfirm : null,
+                              deletingId === item.id ? styles.disabledBtn : null,
+                              pressed ? styles.pressed : null,
+                            ]}
+                          >
+                            {deletingId === item.id ? (
+                              <Text style={styles.deleteBtnText}>...</Text>
+                            ) : confirmDeleteId === item.id ? (
+                              <Text style={styles.deleteBtnText}>Sure?</Text>
+                            ) : (
+                              <Ionicons name="trash-outline" size={13} color="#B91C1C" />
+                            )}
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+          )}
+        </ContentCard>
+
+      </AppPage>
     </Screen>
   );
 }
-
 const styles = StyleSheet.create({
-  pagePad: {
-    flexGrow: 1,
-    backgroundColor: PAGE_BG,
-    padding: 24,
-  },
-
-  pageInner: {
-    width: "100%",
-    maxWidth: 1400,
-    alignSelf: "center",
-    gap: 16,
-  },
-
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 14,
-    flexWrap: "wrap",
-  },
-
-  headerCopy: {
-    flex: 1,
-    minWidth: 280,
-    gap: 4,
-  },
-
-  pageTitle: {
-    color: TEXT,
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: "900",
-  },
-
-  pageSub: {
-    color: MUTED,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "700",
-  },
-
-  headerActions: {
+  alertsStrip: {
     flexDirection: "row",
     gap: 10,
     flexWrap: "wrap",
-    alignItems: "center",
-    marginTop: 18,
   },
-
-  quickAction: {
-    minHeight: 44,
+  alertChip: {
     paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_WHITE,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  quickActionPrimary: {
-    backgroundColor: GOLD_BRIGHT,
-    borderColor: GOLD,
-    shadowColor: "#c9a227",
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-  },
-
-  quickActionText: {
-    color: TEXT,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  quickActionTextPrimary: {
-    color: TEXT,
-  },
-
-  hero: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: BORDER_STRONG,
-    backgroundColor: HERO_BG,
-    padding: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-  },
-
-  heroCopy: {
-    flex: 1,
-    minWidth: 280,
-  },
-
-  heroEyebrow: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    marginBottom: 10,
-  },
-
-  heroTitle: {
-    color: "#ffffff",
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: "900",
-  },
-
-  heroSubtitle: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "700",
-    maxWidth: 760,
-  },
-
-  heroPills: {
-    flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
-    marginTop: 18,
-  },
-
-  heroPill: {
+    paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
-
-  heroPillText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "800",
+  alertChipAmber: {
+    backgroundColor: "#FEF3C7",
+    borderColor: "#FCD34D",
   },
-
-  heroPanel: {
-    width: 320,
-    minWidth: 260,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 18,
-    justifyContent: "center",
+  alertChipRed: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
   },
-
-  heroPanelLabel: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    marginBottom: 8,
+  alertChipBlue: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
   },
-
-  heroPanelValue: {
-    color: "#ffffff",
-    fontSize: 22,
-    lineHeight: 27,
-    fontWeight: "900",
-  },
-
-  heroPanelText: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.76)",
+  alertChipText: {
     fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
+    fontWeight: "800",
+    color: theme.colors.ink,
   },
-
-  statsRow: {
+  controlsRow: {
     flexDirection: "row",
     gap: 12,
     flexWrap: "wrap",
-  },
-
-  statCard: {
-    minWidth: 220,
-    flex: 1,
-    backgroundColor: CARD_WHITE,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 18,
-    padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-
-  statLabel: {
-    color: MUTED_2,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
-
-  statValue: {
-    marginTop: 8,
-    color: TEXT,
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: "900",
-  },
-
-  statSubtitle: {
-    marginTop: 6,
-    color: MUTED,
-    fontSize: 12.5,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-
-  controlsCard: {
-    backgroundColor: CARD_BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 22,
-    padding: 18,
-    gap: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-
-  controlsTop: {
-    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    flexWrap: "wrap",
   },
-
-  controlsCopy: {
-    flex: 1,
-    minWidth: 240,
-  },
-
-  cardEyebrow: {
-    color: GOLD,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-  },
-
-  cardTitle: {
-    marginTop: 6,
-    color: TEXT,
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: "900",
-  },
-
-  cardSubtitle: {
-    marginTop: 4,
-    color: MUTED,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  cardMeta: {
-    color: MUTED_2,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#efe4c8",
-  },
-
   searchWrap: {
-    minHeight: 48,
+    flex: 1,
+    minWidth: 260,
+    minHeight: 44,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 16,
+    borderColor: theme.colors.border,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 14,
-    backgroundColor: "#fffaf0",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-
   search: {
     flex: 1,
-    color: TEXT,
-    fontWeight: "700",
+    color: theme.colors.ink,
     fontSize: 14,
+    fontWeight: "500",
   },
-
   pillRow: {
     gap: 8,
   },
-
-  templateFilterBlock: {
-    gap: 8,
-  },
-
-  templateFilterLabel: {
-    color: MUTED_2,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
-
   filterPill: {
-    minHeight: 40,
+    minHeight: 36,
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_WHITE,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     justifyContent: "center",
   },
-
   filterPillActive: {
-    backgroundColor: GOLD_SOFT,
-    borderColor: GOLD,
+    backgroundColor: theme.colors.surface2,
+    borderColor: "#BFDBFE",
   },
-
   filterPillText: {
-    color: TEXT,
-    fontWeight: "900",
+    color: theme.colors.ink,
+    fontWeight: "700",
     fontSize: 12.5,
   },
-
   filterPillTextActive: {
-    color: "#8a6a12",
+    color: theme.colors.goldDark,
   },
-
-  tableCard: {
-    backgroundColor: CARD_WHITE,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 22,
-    padding: 18,
-    gap: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+  savedViewActive: {
+    backgroundColor: theme.colors.surface2,
+    borderColor: "#BFDBFE",
   },
-
-  tableHeaderTop: {
+  savedViewActiveText: {
+    color: theme.colors.goldDark,
+  },
+  sortPillActive: {
+    backgroundColor: theme.colors.surface2,
+    borderColor: "#BFDBFE",
+  },
+  sortPillActiveText: {
+    color: theme.colors.goldDark,
+  },
+  viewModeRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    flexWrap: "wrap",
+    gap: 6,
   },
-
-  emptyWrap: {
-    minHeight: 220,
+  viewModeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 12,
   },
-
-  empty: {
-    color: TEXT,
-    fontWeight: "900",
-    fontSize: 18,
+  viewModeBtnActive: {
+    backgroundColor: theme.colors.surface2,
+    borderColor: "#BFDBFE",
   },
-
-  emptySub: {
-    color: MUTED,
-    fontWeight: "700",
-    fontSize: 13,
-    textAlign: "center",
-    maxWidth: 520,
-  },
-
   table: {
-    overflow: "hidden",
-    borderRadius: 18,
+    width: "100%",
     borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_WHITE,
-    minWidth: 980,
+    borderColor: theme.colors.border,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: theme.colors.surface,
   },
-
   tableHead: {
-    minHeight: 48,
-    backgroundColor: CARD_BG,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    backgroundColor: theme.colors.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
   },
-
+  tableHeadMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 16,
+    paddingRight: 10,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  tableHeadActions: {
+    width: 150,
+    paddingRight: 14,
+    paddingVertical: 12,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
   th: {
-    color: MUTED_2,
-    fontWeight: "900",
+    color: theme.colors.muted,
+    fontWeight: "800",
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-
   tr: {
-    minHeight: 56,
-    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#f3ead3",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
-
   trStriped: {
-    backgroundColor: "#fffcf6",
+    backgroundColor: "#F8FAFC",
   },
-
   trPressed: {
-    opacity: 0.92,
+    backgroundColor: theme.colors.surface2,
   },
-
+  rowMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 16,
+    paddingRight: 10,
+    paddingVertical: 12,
+    gap: 8,
+  },
   td: {
-    color: TEXT,
-    fontWeight: "700",
-    fontSize: 13,
+    color: theme.colors.ink,
+    fontWeight: "600",
+    fontSize: 13.5,
   },
-
-  colId: {
-    width: 120,
+  colId: { width: 98 },
+  colTitle: { flex: 1.2, minWidth: 100 },
+  colClient: { flex: 1, minWidth: 115 },
+  colAssigned: { width: 116 },
+  colPriority: { width: 72, alignItems: "center", justifyContent: "center" },
+  colStatus: { width: 112 },
+  colDue: { width: 112 },
+  colUpdated: { width: 78 },
+  colActions: { width: 150 },
+  dueCell: {
+    gap: 4,
+    justifyContent: "center",
   },
-
-  colTitle: {
-    flex: 1.35,
+  dueTextOverdue: {
+    color: "#B42318",
+    fontWeight: "900",
   },
-
-  colClient: {
-    flex: 1.1,
+  overdueBubble: {
+    alignSelf: "flex-start",
+    minHeight: 22,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
   },
-
-  colTemplate: {
-    width: 125,
+  overdueBubbleText: {
+    color: "#B42318",
+    fontSize: 10.5,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.35,
   },
-
-  colAssigned: {
+  actionCell: {
     width: 150,
+    paddingRight: 14,
+    paddingLeft: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
   },
-
-  colStatus: {
-    width: 128,
-  },
-
-  colDue: {
-    width: 110,
-    textAlign: "right",
-  },
-
-  statusChip: {
+  openBtn: {
     minHeight: 32,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  openBtnText: {
+    color: theme.colors.ink,
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  deleteBtn: {
+    minWidth: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  deleteBtnConfirm: {
+    backgroundColor: "#C14343",
+    borderColor: "#C14343",
+  },
+  deleteBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 11,
+  },
+  disabledBtn: {
+    opacity: 0.7,
+  },
+  statusChip: {
+    minHeight: 30,
     borderRadius: 999,
     paddingHorizontal: 10,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
   },
-
-  statusOpen: {
-    backgroundColor: "#fff4d6",
-    borderColor: "#ecd189",
-  },
-
-  statusScheduled: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#bfdbfe",
-  },
-
-  statusInProgress: {
-    backgroundColor: "#dcfce7",
-    borderColor: "#bbf7d0",
-  },
-
-  statusOnHold: {
-    backgroundColor: "#fee2e2",
-    borderColor: "#fecaca",
-  },
-
-  statusClosed: {
-    backgroundColor: "#ede9fe",
-    borderColor: "#ddd6fe",
-  },
-
+  statusOpen: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" },
+  statusReview: { backgroundColor: "#DBEAFE", borderColor: "#BFDBFE" },
+  statusProgress: { backgroundColor: "#DCFCE7", borderColor: "#BBF7D0" },
+  statusHold: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  statusClosed: { backgroundColor: "#EDE9FE", borderColor: "#BFDBFE" },
+  statusArchived: { backgroundColor: "#F1F5F9", borderColor: theme.colors.borderStrong },
   statusText: {
-    color: TEXT,
-    fontWeight: "900",
+    color: theme.colors.ink,
+    fontWeight: "800",
     fontSize: 11.5,
   },
-
+  priorityBadge: {
+    minHeight: 24,
+    minWidth: 54,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  priorityBadgeText: {
+    color: theme.colors.ink,
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
+  priorityUrgent: { backgroundColor: "#FEE2E2", borderColor: "#FECACA" },
+  priorityHigh: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" },
+  priorityNormal: { backgroundColor: "#F3F4F6", borderColor: theme.colors.border },
+  priorityLow: { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" },
+  cardGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  woCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 16,
+    padding: 16,
+    gap: 8,
+  },
+  woCardPressed: {
+    borderColor: "#DBEAFE",
+    backgroundColor: "#F8FAFC",
+  },
+  woCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  woCardNumber: {
+    color: theme.colors.goldDark,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+  },
+  woCardTitle: {
+    color: theme.colors.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  woCardMeta: {
+    color: theme.colors.ink,
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  woCardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  woCardMetaMuted: {
+    color: theme.colors.muted,
+    fontSize: 12.5,
+    fontWeight: "500",
+  },
+  emptyWrap: {
+    minHeight: 220,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emptyTitle: {
+    color: theme.colors.ink,
+    fontWeight: "900",
+    fontSize: 18,
+  },
   pressed: {
     opacity: 0.92,
   },

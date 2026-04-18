@@ -80,7 +80,7 @@ export function formatWebsiteInput(value: string, finalize = false) {
 ----------------------------- */
 
 export function formatWorkOrderNumber(num: number | null | undefined) {
-  if (!num) return "—";
+  if (!num) return "-";
   return `WO-${String(num).padStart(4, "0")}`;
 }
 
@@ -89,6 +89,6 @@ export function formatWorkOrderNumber(num: number | null | undefined) {
 ----------------------------- */
 
 export function formatInvoiceNumber(num: number | null | undefined) {
-  if (!num) return "—";
+  if (!num) return "-";
   return `INV-${String(num).padStart(4, "0")}`;
 }

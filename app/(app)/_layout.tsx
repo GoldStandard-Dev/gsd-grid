@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Slot, usePathname, useRouter } from "expo-router";
+import { Slot, usePathname, useRootNavigationState, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import TopBarProfile from "../../src/components/TopBarProfile";
 import { getUserOrgId } from "../../src/lib/auth";
 import { supabase } from "../../src/lib/supabase";
@@ -18,21 +18,17 @@ type NavItem = {
   path: string;
   icon: keyof typeof Ionicons.glyphMap;
   permission: Permission;
+  section: "main" | "finance" | "operations" | "system";
+  badgeKey?: keyof NavBadges;
 };
 
-const PALETTE = {
-  ink: theme.colors.ink,
-  ink2: theme.colors.ink2,
-  gold: theme.colors.gold,
-  goldDark: theme.colors.goldDark,
-  goldSoft: theme.colors.gold2,
-  white: theme.colors.surface,
-  panel: theme.colors.surface2,
-  canvas: theme.colors.bg,
-  border: theme.colors.border,
-  text: theme.colors.ink,
-  textMuted: theme.colors.muted,
+type NavBadges = {
+  workorders: number;
+  invoices: number;
+  team: number;
 };
+
+const SUPPORT_EMAIL = "goldstandarddigital@outlook.com";
 
 function pageTitleFromPath(
   pathname: string,
@@ -50,10 +46,28 @@ function pageTitleFromPath(
   if (pathname.endsWith("/invoices")) return "Invoices";
   if (pathname.endsWith("/clients")) return labels.clients;
   if (pathname.endsWith("/team")) return labels.team;
-  if (pathname.endsWith("/workforce")) return labels.workforce;
+  if (pathname.endsWith("/workforce")) return "Team";
   if (pathname.endsWith("/settings")) return "Settings";
   if (pathname.endsWith("/profile")) return "Profile";
+  if (pathname.endsWith("/support")) return "Support";
+  if (pathname.endsWith("/privacy")) return "Privacy Policy";
+  if (pathname.endsWith("/terms")) return "Terms";
   return "GSD Grid";
+}
+
+function pageEyebrowFromPath(pathname: string) {
+  if (pathname.endsWith("/dashboard")) return "";
+  if (pathname.includes("/workorders")) return "Operations";
+  if (pathname.endsWith("/pricing")) return "Templates";
+  if (pathname.endsWith("/invoices")) return "Billing";
+  if (pathname.endsWith("/clients")) return "Relationships";
+  if (pathname.endsWith("/workforce")) return "People";
+  if (pathname.endsWith("/settings")) return "Administration";
+  if (pathname.endsWith("/profile")) return "Account";
+  if (pathname.endsWith("/support")) return "Help";
+  if (pathname.endsWith("/privacy")) return "Legal";
+  if (pathname.endsWith("/terms")) return "Legal";
+  return "Workspace";
 }
 
 function getDefaultRoute(permissions: Permission[]) {
@@ -67,18 +81,44 @@ function getDefaultRoute(permissions: Permission[]) {
   return "/dashboard";
 }
 
+function parseReviewStatus(description?: string | null) {
+  if (!description) return "draft";
+
+  try {
+    const parsed = JSON.parse(description);
+    return String(parsed?.reviewWorkflow?.status ?? "draft");
+  } catch {
+    return "draft";
+  }
+}
+
+function supportMailto(subject: string) {
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`;
+}
+
 export default function AppLayout() {
   const pathname = usePathname();
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
 
   const [collapsed, setCollapsed] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const [userRole, setUserRole] = useState<UserRole>("viewer");
+  const [navBadges, setNavBadges] = useState<NavBadges>({
+    workorders: 0,
+    invoices: 0,
+    team: 0,
+  });
+  const [collapsedSections, setCollapsedSections] = useState({
+    finance: false,
+    operations: false,
+  });
   const [labels, setLabels] = useState({
     workorders: "Work Orders",
-    pricing: "Pricing",
+    pricing: "Pricing Grid",
     clients: "Clients",
-    team: "Team",
-    workforce: "Workforce",
+    team: "Team & Roles",
+    workforce: "Team & Roles",
   });
 
   useEffect(() => {
@@ -117,10 +157,47 @@ export default function AppLayout() {
         if (settings && mounted) {
           setLabels({
             workorders: settings.nav_label_workorders || "Work Orders",
-            pricing: settings.nav_label_pricing || "Pricing",
+            pricing: settings.nav_label_pricing || "Pricing Grid",
             clients: settings.nav_label_clients || "Clients",
-            team: settings.nav_label_team || "Team",
-            workforce: settings.nav_label_workforce || "Workforce",
+            team: settings.nav_label_team || "Team & Roles",
+            workforce: settings.nav_label_workforce || "Team & Roles",
+          });
+        }
+
+        const [workOrdersRes, invoicesRes, invitesRes] = await Promise.all([
+          supabase
+            .from("work_orders")
+            .select("description, status")
+            .eq("org_id", orgId),
+          supabase
+            .from("invoices")
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", orgId)
+            .in("status", ["unpaid", "overdue", "sent", "partial"]),
+          supabase
+            .from("org_invites")
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", orgId)
+            .eq("status", "pending"),
+        ]);
+
+        if (mounted) {
+          const reviewCount = workOrdersRes.error
+            ? 0
+            : (workOrdersRes.data ?? []).filter((row) => {
+                const reviewStatus = parseReviewStatus(row.description);
+                const stageStatus = String(row.status ?? "").toLowerCase();
+                return (
+                  reviewStatus === "submitted_for_review" ||
+                  reviewStatus === "in_review" ||
+                  stageStatus === "in_review"
+                );
+              }).length;
+
+          setNavBadges({
+            workorders: reviewCount,
+            invoices: invoicesRes.error ? 0 : invoicesRes.count ?? 0,
+            team: invitesRes.error ? 0 : invitesRes.count ?? 0,
           });
         }
       } catch {
@@ -149,48 +226,52 @@ export default function AppLayout() {
         path: "/dashboard",
         icon: "grid-outline",
         permission: "view_dashboard",
+        section: "main",
       },
       {
         name: labels.workorders,
         path: "/workorders",
-        icon: "clipboard-outline",
+        icon: "clipboard",
         permission: "view_workorders",
+        section: "main",
+        badgeKey: "workorders",
+      },
+      {
+        name: labels.clients,
+        path: "/clients",
+        icon: "people",
+        permission: "view_clients",
+        section: "main",
       },
       {
         name: labels.pricing,
         path: "/pricing",
-        icon: "calculator-outline",
-        permission: "view_workorders",
+        icon: "calculator",
+        permission: "view_financials",
+        section: "finance",
       },
       {
         name: "Invoices",
         path: "/invoices",
         icon: "document-text-outline",
         permission: "view_invoices",
-      },
-      {
-        name: labels.clients,
-        path: "/clients",
-        icon: "people-outline",
-        permission: "view_clients",
-      },
-      {
-        name: labels.team,
-        path: "/team",
-        icon: "people-circle-outline",
-        permission: "view_people",
+        section: "finance",
+        badgeKey: "invoices",
       },
       {
         name: labels.workforce,
         path: "/workforce",
-        icon: "briefcase-outline",
+        icon: "id-card-outline",
         permission: "view_hr",
+        section: "operations",
+        badgeKey: "team",
       },
       {
         name: "Settings",
         path: "/settings",
-        icon: "settings-outline",
+        icon: "settings",
         permission: "view_settings",
+        section: "system",
       },
     ],
     [labels]
@@ -201,12 +282,33 @@ export default function AppLayout() {
     [navItems, userPermissions]
   );
 
+  const mainNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.section === "main"),
+    [visibleNavItems]
+  );
+
+  const financeNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.section === "finance"),
+    [visibleNavItems]
+  );
+
+  const operationsNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.section === "operations"),
+    [visibleNavItems]
+  );
+
+  const systemNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.section === "system"),
+    [visibleNavItems]
+  );
+
   const allowedPaths = useMemo(
-    () => [...visibleNavItems.map((item) => item.path), "/profile"],
+    () => [...visibleNavItems.map((item) => item.path), "/profile", "/support", "/privacy", "/terms"],
     [visibleNavItems]
   );
 
   useEffect(() => {
+    if (!rootNavigationState?.key) return;
     if (!pathname) return;
     if (pathname === "/") return;
 
@@ -215,93 +317,125 @@ export default function AppLayout() {
     if (!isAllowed && allowedPaths.length > 0) {
       router.replace(getDefaultRoute(userPermissions));
     }
-  }, [allowedPaths, pathname, router, userPermissions]);
+  }, [allowedPaths, pathname, rootNavigationState?.key, router, userPermissions]);
 
+  const pageTitle = pageTitleFromPath(pathname, labels);
+  const pageEyebrow = pageEyebrowFromPath(pathname);
+  const navSections = [
+    { key: "main" as const, label: "Main", items: mainNavItems, collapsible: false },
+    { key: "finance" as const, label: "Finance", items: financeNavItems, collapsible: true },
+    { key: "operations" as const, label: "Operations", items: operationsNavItems, collapsible: true },
+    { key: "system" as const, label: "System", items: systemNavItems, collapsible: false },
+  ];
   return (
     <View style={styles.container}>
       <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
-        <View style={styles.sidebarHeader}>
-          <View style={styles.logoWrap}>
-            <Image source={require("../../assets/brand/gsd-grid-icon.png")} style={styles.logo} />
-          </View>
-
-          {!collapsed ? (
-            <View style={styles.brandBlock}>
-              <Text style={styles.brandTitle}>GSD Grid</Text>
-              <Text style={styles.brandSub}>Gold Standard Workflow</Text>
+        <View style={styles.sidebarHeaderTint}>
+          <View style={styles.sidebarHeader}>
+            <View style={styles.logoWrap}>
+              <Image source={require("../../assets/brand/gsd-grid-icon.png")} style={styles.logo} />
             </View>
-          ) : null}
-        </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.collapseButton, pressed ? styles.pressed : null]}
-          onPress={() => setCollapsed((prev) => !prev)}
-        >
-          <Ionicons
-            name={collapsed ? "chevron-forward" : "chevron-back"}
-            size={16}
-            color={PALETTE.goldDark}
-          />
-        </Pressable>
-
-        <View style={styles.roleCard}>
-          {!collapsed ? (
-            <>
-              <Text style={styles.roleCardLabel}>Signed in as</Text>
-              <Text style={styles.roleCardValue}>
-                {userRole
-                  .split("_")
-                  .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-                  .join(" ")}
-              </Text>
-            </>
-          ) : (
-            <Ionicons name="shield-checkmark-outline" size={18} color={PALETTE.goldDark} />
-          )}
-        </View>
-
-        <View style={styles.nav}>
-          {visibleNavItems.map((item) => {
-            const active = pathname.startsWith(item.path);
-
-            return (
-              <Pressable
-                key={item.path}
-                onPress={() => router.push(item.path as never)}
-                style={({ pressed }) => [
-                  styles.navItem,
-                  active ? styles.navItemActive : null,
-                  pressed ? styles.pressed : null,
-                ]}
-              >
-                <View style={[styles.navIconWrap, active ? styles.navIconWrapActive : null]}>
-                  <Ionicons
-                    name={item.icon}
-                    size={18}
-                    color={active ? PALETTE.goldDark : PALETTE.textMuted}
-                  />
-                </View>
-
-                {!collapsed ? (
-                  <Text style={[styles.navText, active ? styles.navTextActive : null]}>
-                    {item.name}
-                  </Text>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {!collapsed ? (
-          <View style={styles.sidebarFooter}>
-            <Text style={styles.footerText}>Powered by GSD</Text>
+            {!collapsed ? (
+              <View style={styles.brandBlock}>
+                <Text style={styles.brandTitle}>GSD Grid</Text>
+                <Text style={styles.brandSub}>Professional workflow management</Text>
+              </View>
+            ) : null}
           </View>
-        ) : null}
+        </View>
+
+        <View style={styles.sidebarControls}>
+          <Pressable
+            style={({ pressed }) => [styles.collapseButton, pressed ? styles.pressed : null]}
+            onPress={() => setCollapsed((prev) => !prev)}
+          >
+            <Ionicons
+              name={collapsed ? "chevron-forward" : "chevron-back"}
+              size={16}
+              color={theme.colors.primaryHover}
+            />
+          </Pressable>
+        </View>
+
+        {navSections.map((section) =>
+          section.items.length ? (
+            <View key={section.label} style={styles.navSection}>
+              {!collapsed ? (
+                <Pressable
+                  disabled={!section.collapsible}
+                  onPress={() => {
+                    if (!section.collapsible) return;
+                    setCollapsedSections((prev) => ({
+                      ...prev,
+                      [section.key]: !prev[section.key as "finance" | "operations"],
+                    }));
+                  }}
+                  style={styles.navSectionHeader}
+                >
+                  <Text style={styles.navLabel}>{section.label}</Text>
+                  {section.collapsible ? (
+                    <Ionicons
+                      name={collapsedSections[section.key as "finance" | "operations"] ? "chevron-forward" : "chevron-down"}
+                      size={13}
+                      color={theme.colors.mutedSoft}
+                    />
+                  ) : null}
+                </Pressable>
+              ) : null}
+              {section.label !== "Main" ? <View style={styles.navDivider} /> : null}
+              <View style={[styles.navList, !collapsed && section.collapsible && collapsedSections[section.key as "finance" | "operations"] ? styles.navListHidden : null]}>
+                {section.items.map((item) => {
+                  const active = pathname.startsWith(item.path);
+                  const badgeValue = item.badgeKey ? navBadges[item.badgeKey] : 0;
+
+                  return (
+                    <Pressable
+                      key={item.path}
+                      onPress={() => router.push(item.path as never)}
+                      style={({ pressed, hovered }: any) => [
+                        styles.navItem,
+                        active ? styles.navItemActive : null,
+                        hovered && !active ? styles.navItemHover : null,
+                        pressed && !active ? styles.navItemPressed : null,
+                        pressed ? styles.pressed : null,
+                      ]}
+                    >
+                      {active ? <View style={styles.navActiveStrip} /> : null}
+                      <View style={[styles.navIconWrap, active ? styles.navIconWrapActive : null]}>
+                        <Ionicons
+                          name={item.icon}
+                          size={18}
+                          color={active ? theme.colors.primaryHover : theme.colors.mutedSoft}
+                        />
+                      </View>
+                      {!collapsed ? (
+                        <Text style={[styles.navText, active ? styles.navTextActive : null]}>
+                          {item.name}
+                        </Text>
+                      ) : null}
+                      {badgeValue > 0 ? (
+                        <View style={[styles.navBadge, collapsed ? styles.navBadgeCollapsed : null]}>
+                          <Text style={styles.navBadgeText}>{badgeValue > 99 ? "99+" : String(badgeValue)}</Text>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null
+        )}
+
       </View>
 
       <View style={styles.main}>
+        <View style={styles.topbarAccent} />
         <View style={styles.topbar}>
-          <Text style={styles.pageTitle}>{pageTitleFromPath(pathname, labels)}</Text>
+          <View>
+            {pageEyebrow ? <Text style={styles.topbarEyebrow}>{pageEyebrow}</Text> : null}
+            <Text style={styles.pageTitle}>{pageTitle}</Text>
+          </View>
           <TopBarProfile />
         </View>
 
@@ -309,6 +443,74 @@ export default function AppLayout() {
           <Slot />
         </View>
       </View>
+
+      <Pressable
+        accessibilityLabel="Support"
+        onPress={() => setSupportOpen(true)}
+        style={({ pressed, hovered }: any) => [
+          styles.supportFab,
+          hovered ? styles.supportFabHover : null,
+          pressed ? styles.pressed : null,
+        ]}
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={22} color="#111111" />
+        <View style={styles.supportTooltip}>
+          <Text style={styles.supportTooltipText}>Support</Text>
+        </View>
+      </Pressable>
+
+      <Modal visible={supportOpen} transparent animationType="fade" onRequestClose={() => setSupportOpen(false)}>
+        <Pressable style={styles.supportBackdrop} onPress={() => setSupportOpen(false)}>
+          <Pressable style={styles.supportPanel} onPress={() => {}}>
+            <View style={styles.supportPanelHeader}>
+              <View>
+                <Text style={styles.supportPanelTitle}>Support</Text>
+                <Text style={styles.supportPanelSub}>{SUPPORT_EMAIL}</Text>
+              </View>
+              <Pressable onPress={() => setSupportOpen(false)} style={styles.supportCloseBtn}>
+                <Ionicons name="close" size={16} color={theme.colors.ink} />
+              </Pressable>
+            </View>
+
+            {[
+              {
+                icon: "mail-outline" as const,
+                label: "Contact Support",
+                onPress: () => void Linking.openURL(supportMailto("GSD Grid support")),
+              },
+              {
+                icon: "book-outline" as const,
+                label: "View Docs",
+                onPress: () => router.push("/support" as never),
+              },
+              {
+                icon: "bug-outline" as const,
+                label: "Report Issue",
+                onPress: () => void Linking.openURL(supportMailto("GSD Grid issue report")),
+              },
+            ].map((item) => (
+              <Pressable
+                key={item.label}
+                onPress={() => {
+                  setSupportOpen(false);
+                  item.onPress();
+                }}
+                style={({ pressed, hovered }: any) => [
+                  styles.supportAction,
+                  hovered ? styles.supportActionHover : null,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <View style={styles.supportActionIcon}>
+                  <Ionicons name={item.icon} size={17} color={theme.colors.primaryHover} />
+                </View>
+                <Text style={styles.supportActionText}>{item.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.mutedSoft} />
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -317,183 +519,366 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: PALETTE.canvas,
+    backgroundColor: theme.colors.bg,
   },
-
   sidebar: {
-    width: 240,
-    backgroundColor: PALETTE.white,
+    width: 252,
+    backgroundColor: theme.colors.sidebar,
     borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    paddingTop: 18,
-    paddingHorizontal: 14,
+    borderRightColor: theme.colors.sidebarBorder,
+    paddingHorizontal: 16,
+    paddingTop: 0,
+    paddingBottom: 16,
   },
-
   sidebarCollapsed: {
-    width: 82,
+    width: 92,
   },
-
+  sidebarHeaderTint: {
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 14,
+    backgroundColor: theme.colors.primarySoft,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
   sidebarHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: 16,
-    minHeight: 48,
+    minHeight: 52,
   },
-
   logoWrap: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: "#FFF8E8",
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
-
   logo: {
     width: 24,
     height: 24,
     resizeMode: "contain",
   },
-
   brandBlock: {
     flex: 1,
     minWidth: 0,
   },
-
   brandTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: PALETTE.text,
+    color: theme.colors.ink,
   },
-
   brandSub: {
     marginTop: 2,
-    fontSize: 11.5,
-    color: PALETTE.textMuted,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.mutedSoft,
   },
-
+  sidebarControls: {
+    gap: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
   collapseButton: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.white,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
   },
-
   roleCard: {
-    minHeight: 54,
-    borderRadius: 14,
+    minHeight: 42,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: "#FBF7EC",
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.primarySoft,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
+    paddingVertical: 8,
     alignItems: "flex-start",
     justifyContent: "center",
   },
-
   roleCardLabel: {
     fontSize: 11,
-    fontWeight: "700",
-    color: PALETTE.textMuted,
+    fontWeight: "800",
+    color: theme.colors.mutedSoft,
     marginBottom: 3,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-
   roleCardValue: {
     fontSize: 13,
     fontWeight: "900",
-    color: PALETTE.goldDark,
+    color: theme.colors.primaryHover,
   },
-
-  nav: {
+  navSection: {
     gap: 8,
+    marginBottom: 17,
   },
-
-  navItem: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-
-  navItemActive: {
-    backgroundColor: "#FBF4E2",
-    borderColor: PALETTE.border,
-  },
-
-  navIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  navIconWrapActive: {
-    backgroundColor: "#F5E6B8",
-  },
-
-  navText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: PALETTE.textMuted,
-  },
-
-  navTextActive: {
-    color: PALETTE.goldDark,
-  },
-
-  sidebarFooter: {
-    marginTop: "auto",
-    paddingBottom: 18,
-  },
-
-  footerText: {
-    fontSize: 11,
-    color: PALETTE.textMuted,
-    fontWeight: "700",
-  },
-
-  main: {
-    flex: 1,
-  },
-
-  topbar: {
-    height: 72,
-    borderBottomWidth: 1,
-    borderBottomColor: PALETTE.border,
-    backgroundColor: PALETTE.white,
-    paddingHorizontal: 22,
+  navSectionHeader: {
+    minHeight: 20,
+    paddingHorizontal: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
-  pageTitle: {
-    fontSize: 22,
+  navLabel: {
+    fontSize: 10,
     fontWeight: "900",
-    color: PALETTE.text,
+    color: theme.colors.mutedSoft,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
-
-  content: {
+  navDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginHorizontal: 6,
+    marginBottom: 2,
+  },
+  navList: {
+    gap: 5,
+  },
+  navListHidden: {
+    display: "none",
+  },
+  navItem: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    position: "relative",
+  },
+  navItemActive: {
+    backgroundColor: "#DBEAFE",
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight,
+  },
+  navItemHover: {
+    backgroundColor: theme.colors.primarySoft,
+    transform: [{ translateX: 3 }],
+  },
+  navItemPressed: {
+    backgroundColor: theme.colors.primaryLight,
+  },
+  navActiveStrip: {
+    position: "absolute",
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  navIconWrap: {
+    width: 31,
+    height: 31,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navIconWrapActive: {
+    backgroundColor: "#FFFFFF",
+  },
+  navText: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: theme.colors.muted,
+  },
+  navTextActive: {
+    color: theme.colors.primaryHover,
+    fontWeight: "900",
+  },
+  navBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navBadgeCollapsed: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+  },
+  navBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10.5,
+    fontWeight: "900",
+  },
+  main: {
     flex: 1,
   },
-
+  topbarAccent: {
+    height: 3,
+    backgroundColor: theme.colors.primary,
+  },
+  topbar: {
+    minHeight: 78,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  topbarEyebrow: {
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    color: theme.colors.primaryHover,
+  },
+  pageTitle: {
+    marginTop: 4,
+    fontSize: 24,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  content: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+  },
   pressed: {
-    opacity: 0.9,
+    opacity: 0.92,
+  },
+  supportFab: {
+    position: "absolute",
+    right: 24,
+    bottom: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    backgroundColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+    zIndex: 20,
+  },
+  supportFabHover: {
+    transform: [{ translateY: -1 }],
+    backgroundColor: theme.colors.goldLight,
+  },
+  supportTooltip: {
+    position: "absolute",
+    right: 62,
+    minHeight: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  supportTooltipText: {
+    color: theme.colors.ink,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  supportBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.18)",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    padding: 24,
+  },
+  supportPanel: {
+    width: 320,
+    maxWidth: "100%",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
+    padding: 14,
+    gap: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  supportPanelHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingBottom: 8,
+  },
+  supportPanelTitle: {
+    color: theme.colors.ink,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  supportPanelSub: {
+    marginTop: 3,
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  supportCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supportAction: {
+    minHeight: 46,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: theme.colors.surface,
+  },
+  supportActionHover: {
+    backgroundColor: theme.colors.primarySoft,
+  },
+  supportActionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supportActionText: {
+    flex: 1,
+    color: theme.colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

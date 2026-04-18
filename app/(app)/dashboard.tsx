@@ -1,1654 +1,1256 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import Svg, { Circle, G } from "react-native-svg";
 import Screen from "../../src/components/Screen";
+import {
+  AppPage,
+  ContentCard,
+  PageHeader,
+  SoftAccentCard,
+  SummaryCard,
+  SummaryStrip,
+} from "../../src/components/AppPage";
+import EmptyState from "../../src/components/EmptyState";
 import { supabase } from "../../src/lib/supabase";
 import { getUserOrgId } from "../../src/lib/auth";
-import { formatDateTime, formatInvoiceNumber, formatWorkOrderNumber } from "../../src/lib/format";
-
-type ActivityDetails = {
-  title?: string;
-  client_name?: string | null;
-  clientName?: string | null;
-  name?: string | null;
-  email?: string | null;
-  role?: string | null;
-  status?: string | null;
-  priority?: string | null;
-  work_order_number?: number | null;
-  invoice_number?: number | null;
-  total?: number | null;
-  balance_due?: number | null;
-  changed_fields?: string[];
-};
+import { theme } from "../../src/theme/theme";
 
 type ActivityRow = {
   id: string;
-  created_at: string;
+  actor_user_id: string | null;
   actor_name: string | null;
   action: string;
-  entity_type: string;
-  entity_id: string;
-  details?: ActivityDetails | null;
-};
-
-type NotificationRow = {
-  id: string;
-  org_id?: string | null;
-  user_id?: string | null;
-  title?: string | null;
-  message?: string | null;
-  type?: string | null;
-  read?: boolean | null;
   created_at: string;
-  entity_type?: string | null;
-  entity_id?: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  details: Record<string, unknown> | null;
 };
 
-type DashboardCounts = {
-  openWorkOrders: number;
-  unpaidInvoices: number;
-  clients: number;
+type ActivityFilter = "All" | "Work Orders" | "Invoices" | "Pricing" | "Team";
+
+type InvoiceRow = {
+  total: number | string | null;
+  balance_due: number | string | null;
+  status: string | null;
+  issue_date: string | null;
+  created_at: string | null;
 };
 
-type WorkOrderStatusCounts = {
-  draft: number;
-  inProgress: number;
-  submitted: number;
-  approved: number;
-  completed: number;
-};
-
-type DashboardStat = {
+type RevenuePoint = {
   key: string;
   label: string;
-  value: string;
-  numericValue: number;
-  actionLabel: string;
-  onPress: () => void;
-  color: string;
-  trackColor: string;
+  revenue: number;
+};
+
+type DashStats = {
+  revenue: number;
+  totalWOs: number;
+  pendingWOs: number;
+  completedWOs: number;
 };
 
 function money(value: number) {
-  return `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function DoughnutChart({
-  value,
-  total,
-  color,
-  trackColor,
-  size = 94,
-  strokeWidth = 12,
-}: {
-  value: number;
-  total: number;
-  color: string;
-  trackColor: string;
-  size?: number;
-  strokeWidth?: number;
-}) {
-  const normalizedTotal = Math.max(total, 1);
-  const progress = Math.max(0, Math.min(value / normalizedTotal, 1));
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - progress);
-
-  return (
-    <View style={styles.doughnutWrap}>
-      <View style={[styles.doughnutShadowRing, { width: size, height: size, borderRadius: size / 2 }]} />
-
-      <Svg width={size} height={size} style={styles.doughnutSvg}>
-        <G rotation="-90" origin={`${size / 2}, ${size / 2}`}>
-          <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={strokeWidth} fill="transparent" />
-          <Circle
-            cx={size / 2}
-            cy={size / 2 + 3}
-            r={radius}
-            stroke="rgba(0,0,0,0.16)"
-            strokeWidth={strokeWidth}
-            fill="transparent"
-            strokeLinecap="round"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={dashOffset}
-          />
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke={color}
-            strokeWidth={strokeWidth}
-            fill="transparent"
-            strokeLinecap="round"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={dashOffset}
-          />
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke="rgba(255,255,255,0.22)"
-            strokeWidth={Math.max(2, strokeWidth * 0.22)}
-            fill="transparent"
-            strokeLinecap="round"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={dashOffset + circumference * 0.015}
-          />
-        </G>
-      </Svg>
-
-      <View
-        style={[
-          styles.doughnutInner,
-          {
-            width: size - strokeWidth * 2.2,
-            height: size - strokeWidth * 2.2,
-            borderRadius: (size - strokeWidth * 2.2) / 2,
-          },
-        ]}
-      />
-    </View>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  numericValue,
-  total,
-  actionLabel,
-  onPress,
-  color,
-  trackColor,
-}: {
-  label: string;
-  value: string;
-  numericValue: number;
-  total: number;
-  actionLabel?: string;
-  onPress?: () => void;
-  color: string;
-  trackColor: string;
-}) {
-  const inner = (
-    <View style={styles.statCard}>
-      <View style={styles.statTopRow}>
-        <View style={styles.statCopy}>
-          <Text style={styles.statLabel}>{label}</Text>
-          <Text style={styles.statValue}>{value}</Text>
-        </View>
-
-        <DoughnutChart value={numericValue} total={total} color={color} trackColor={trackColor} />
-      </View>
-
-      {actionLabel ? (
-        <View style={styles.statFooter}>
-          <Text style={styles.statFooterText}>{actionLabel}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-
-  if (!onPress) return inner;
-
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.statCardPressable, pressed ? styles.pressed : null]}>
-      {inner}
-    </Pressable>
-  );
-}
-
-function QuickAction({
-  label,
-  onPress,
-  primary,
-  destructive,
-}: {
-  label: string;
-  onPress?: () => void;
-  primary?: boolean;
-  destructive?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.quickAction,
-        primary ? styles.quickActionPrimary : null,
-        destructive ? styles.quickActionDestructive : null,
-        pressed ? styles.pressed : null,
-      ]}
-    >
-      <Text
-        style={[
-          styles.quickActionText,
-          primary ? styles.quickActionTextPrimary : null,
-          destructive ? styles.quickActionTextDestructive : null,
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function ActionCard({
-  title,
-  subtitle,
-  onPress,
-  primary,
-}: {
-  title: string;
-  subtitle: string;
-  onPress?: () => void;
-  primary?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.actionCard, primary ? styles.actionCardPrimary : null, pressed ? styles.pressed : null]}
-    >
-      <Text style={[styles.actionCardTitle, primary ? styles.actionCardTitlePrimary : null]}>{title}</Text>
-      <Text style={[styles.actionCardSubtitle, primary ? styles.actionCardSubtitlePrimary : null]}>{subtitle}</Text>
-    </Pressable>
-  );
-}
-
-function InsightCard({
-  title,
-  value,
-  subtitle,
-  tone = "default",
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  tone?: "default" | "warning" | "good";
-}) {
-  return (
-    <View
-      style={[
-        styles.insightCard,
-        tone === "warning" ? styles.insightCardWarning : null,
-        tone === "good" ? styles.insightCardGood : null,
-      ]}
-    >
-      <Text style={styles.insightLabel}>{title}</Text>
-      <Text style={styles.insightValue}>{value}</Text>
-      <Text style={styles.insightSub}>{subtitle}</Text>
-    </View>
-  );
-}
-
-function normalizeAction(action: string) {
-  const value = (action ?? "").trim().toLowerCase();
-
-  if (!value) return "updated";
-  if (value.includes("create") || value.includes("added") || value.includes("insert")) return "created";
-  if (value.includes("delete") || value.includes("remove")) return "deleted";
-  if (value.includes("convert")) return "converted";
-  if (value.includes("invite")) return "invited";
-  if (value.includes("accept")) return "accepted";
-  if (value.includes("cancel")) return "cancelled";
-  if (value.includes("update") || value.includes("edit") || value.includes("modify")) return "updated";
-
-  return value;
-}
-
-function formatEntityLabel(entityType: string) {
-  const normalized = (entityType ?? "").replaceAll("_", " ").trim();
-  if (!normalized) return "Record";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function getSectionLabel(entityType: string) {
-  if (entityType === "work_order") return "Work Orders";
-  if (entityType === "invoice") return "Invoices";
-  if (entityType === "client") return "Clients";
-  if (entityType === "org_invite" || entityType === "org_member") return "Team";
-  return formatEntityLabel(entityType);
-}
-
-function buildActivitySubject(item: ActivityRow) {
-  if (item.entity_type === "work_order") {
-    const workOrderLabel = formatWorkOrderNumber(item.details?.work_order_number);
-    const title = item.details?.title?.trim();
-
-    if (workOrderLabel !== "—" && title) return `Work Order ${workOrderLabel} • ${title}`;
-    if (workOrderLabel !== "—") return `Work Order ${workOrderLabel}`;
-    if (title) return `Work Order • ${title}`;
-    return "Work Order";
-  }
-
-  if (item.entity_type === "invoice") {
-    const invoiceLabel = formatInvoiceNumber(item.details?.invoice_number);
-    const client = item.details?.client_name?.trim() || item.details?.clientName?.trim();
-
-    if (invoiceLabel !== "—" && client) return `Invoice ${invoiceLabel} • ${client}`;
-    if (invoiceLabel !== "—") return `Invoice ${invoiceLabel}`;
-    if (client) return `Invoice • ${client}`;
-    return "Invoice";
-  }
-
-  if (item.entity_type === "client") {
-    const client = item.details?.client_name?.trim() || item.details?.clientName?.trim() || item.details?.name?.trim();
-
-    if (client) return `Client • ${client}`;
-    return "Client";
-  }
-
-  if (item.entity_type === "org_invite") {
-    const email = item.details?.email?.trim() || item.details?.name?.trim();
-    const role = item.details?.role?.trim();
-
-    if (email && role) return `Invite • ${email} • ${role}`;
-    if (email) return `Invite • ${email}`;
-    return "Invite";
-  }
-
-  if (item.entity_type === "org_member") {
-    const name = item.details?.name?.trim() || item.details?.email?.trim();
-    const role = item.details?.role?.trim();
-
-    if (name && role) return `Team Member • ${name} • ${role}`;
-    if (name) return `Team Member • ${name}`;
-    return "Team Member";
-  }
-
-  return formatEntityLabel(item.entity_type);
-}
-
-function buildActivityTitle(item: ActivityRow) {
-  const actor = item.actor_name?.trim() || "Someone";
-  const action = normalizeAction(item.action);
-  const subject = buildActivitySubject(item);
-  return `${actor} ${action} ${subject}`;
-}
-
-function buildActivityWhere(item: ActivityRow) {
-  return `Where: ${getSectionLabel(item.entity_type)}`;
-}
-
-function buildActivityMeta(item: ActivityRow) {
-  const time = formatDateTime(item.created_at);
-  const action = normalizeAction(item.action);
-
-  if (item.details?.changed_fields?.length) {
-    return `${time} • Updated: ${item.details.changed_fields.join(", ")}`;
-  }
-
-  if (action === "created") return `${time} • New record`;
-  if (action === "deleted") return `${time} • Record removed`;
-  if (action === "invited") return item.details?.status ? `${time} • Status: ${item.details.status}` : `${time} • Invite sent`;
-  if (action === "accepted") return `${time} • Invite accepted`;
-  if (action === "cancelled") return `${time} • Invite cancelled`;
-
-  return time;
-}
-
-function getActivityBadge(item: ActivityRow) {
-  if (item.entity_type === "work_order") return "work order";
-  if (item.entity_type === "invoice") return "invoice";
-  if (item.entity_type === "client") return "client";
-  if (item.entity_type === "org_invite") return "invite";
-  if (item.entity_type === "org_member") return "team";
-  return item.entity_type.replaceAll("_", " ");
-}
-
-function getActivityDotStyle(item: ActivityRow) {
-  if (item.entity_type === "invoice") return styles.dotInvoice;
-  if (item.entity_type === "client") return styles.dotClient;
-  if (item.entity_type === "org_invite") return styles.dotInvite;
-  if (item.entity_type === "org_member") return styles.dotTeam;
-  return styles.dotWorkOrder;
-}
-
-function getPipelineCounts(workOrders: Array<{ status?: string | null }>) {
-  return workOrders.reduce<WorkOrderStatusCounts>(
-    (acc, item) => {
-      const status = (item.status ?? "").trim().toLowerCase();
-
-      if (status === "draft") acc.draft += 1;
-      else if (status === "submitted" || status === "submitted for review" || status === "review") acc.submitted += 1;
-      else if (status === "approved") acc.approved += 1;
-      else if (status === "completed" || status === "complete") acc.completed += 1;
-      else if (status === "closed") return acc;
-      else acc.inProgress += 1;
-
-      return acc;
-    },
-    {
-      draft: 0,
-      inProgress: 0,
-      submitted: 0,
-      approved: 0,
-      completed: 0,
+function normalizeDetails(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
     }
-  );
+  }
+
+  return typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
-function PipelineBar({ label, value, maxValue }: { label: string; value: number; maxValue: number }) {
-  const widthPercent = maxValue > 0 ? Math.max((value / maxValue) * 100, value > 0 ? 10 : 0) : 0;
-
-  return (
-    <View style={styles.pipelineRow}>
-      <View style={styles.pipelineTop}>
-        <Text style={styles.pipelineLabel}>{label}</Text>
-        <Text style={styles.pipelineValue}>{value}</Text>
-      </View>
-
-      <View style={styles.pipelineTrack}>
-        <View style={[styles.pipelineFill, { width: `${widthPercent}%` }]} />
-      </View>
-    </View>
-  );
+function normalizeActivityRow(row: any): ActivityRow {
+  return {
+    id: String(row.id ?? ""),
+    actor_user_id: row.actor_user_id ?? null,
+    actor_name: row.actor_name ?? null,
+    action: String(row.action ?? ""),
+    created_at: String(row.created_at ?? new Date().toISOString()),
+    entity_type: row.entity_type ?? null,
+    entity_id: row.entity_id ?? null,
+    details: normalizeDetails(row.details),
+  };
 }
+
+async function fetchActivityRows(orgId: string): Promise<ActivityRow[]> {
+  const { data, error } = await supabase
+    .from("activity_log")
+    .select("id, actor_user_id, actor_name, action, created_at, entity_type, entity_id, details")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.warn("[dashboard activity] query failed", error.message);
+    return [];
+  }
+
+  return (data ?? []).map(normalizeActivityRow);
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function activityTimeLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return timeAgo(iso);
+
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  if (sameDay) return `${timeAgo(iso)} - Today at ${time}`;
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
+  return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} at ${time}`;
+}
+
+function titleCase(value: string) {
+  return value
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
+function sentenceCase(value: string) {
+  const clean = value.trim();
+  if (!clean) return "updated the workspace";
+  return clean.charAt(0).toLowerCase() + clean.slice(1);
+}
+
+function getActivityCategory(item: ActivityRow) {
+  const haystack = `${item.entity_type ?? ""} ${item.action}`.toLowerCase();
+  if (haystack.includes("work_order") || haystack.includes("work order")) return "Work Order";
+  if (haystack.includes("invoice")) return "Invoice";
+  if (haystack.includes("pricing")) return "Pricing";
+  if (haystack.includes("client")) return "Client";
+  if (haystack.includes("team") || haystack.includes("invite") || haystack.includes("member")) return "Team";
+  return titleCase(item.entity_type ?? "Operations");
+}
+
+function detailString(details: Record<string, unknown> | null | undefined, key: string) {
+  const value = details?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function detailNumber(details: Record<string, unknown> | null | undefined, key: string) {
+  const value = details?.[key];
+  const next = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(next) ? next : 0;
+}
+
+function detailCurrency(details: Record<string, unknown> | null | undefined, key: string) {
+  return money(detailNumber(details, key));
+}
+
+function parseLineItemChangeContext(action: string) {
+  const detailText = action.split(" - ")[1]?.trim();
+  if (!detailText?.includes("line item")) return null;
+
+  const parts = detailText
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!parts.length) return null;
+
+  return `${parts.join(", ")} on this work order.`;
+}
+
+function getActivityContext(item: ActivityRow) {
+  const action = item.action.toLowerCase();
+  const details = item.details ?? {};
+  const workOrderNumber = detailString(details, "work_order_number");
+  const invoiceNumber = detailString(details, "invoice_number");
+
+  if (action === "line_items_bulk_added") {
+    const parts = [
+      detailNumber(details, "measured_count") ? `${detailNumber(details, "measured_count")} measured` : "",
+      detailNumber(details, "labor_count") ? `${detailNumber(details, "labor_count")} labor` : "",
+      detailNumber(details, "material_count") ? `${detailNumber(details, "material_count")} material` : "",
+    ].filter(Boolean);
+
+    return parts.length ? `${parts.join(" - ")}.` : `Line items were added to ${workOrderNumber || "this work order"}.`;
+  }
+
+  if (action === "line_item_updated") {
+    const field = detailString(details, "field_changed");
+    const rowLabel = detailString(details, "row_label");
+    const oldValue = detailString(details, "old_value");
+    const newValue = detailString(details, "new_value");
+
+    if (field && oldValue && newValue) {
+      return `${titleCase(field)} changed from ${oldValue} to ${newValue}.`;
+    }
+
+    if (rowLabel) {
+      return `${rowLabel} was updated.`;
+    }
+  }
+
+  if (action === "line_items_updated") {
+    const parts = [
+      detailNumber(details, "added_count") ? `${detailNumber(details, "added_count")} added` : "",
+      detailNumber(details, "updated_count") ? `${detailNumber(details, "updated_count")} updated` : "",
+      detailNumber(details, "removed_count") ? `${detailNumber(details, "removed_count")} removed` : "",
+    ].filter(Boolean);
+
+    return parts.join(" - ") || `Line items changed on ${workOrderNumber || "this work order"}.`;
+  }
+
+  if (action === "stage_changed") {
+    const oldValue = detailString(details, "old_value");
+    const newValue = detailString(details, "new_value");
+    if (oldValue && newValue) return `Moved from ${oldValue} to ${newValue}.`;
+  }
+
+  if (action === "pricing_imported") {
+    const count = detailNumber(details, "count");
+    const adjustmentTotal = detailNumber(details, "adjustment_total");
+    return [
+      count ? `${count} pricing rows` : "",
+      adjustmentTotal ? `${money(adjustmentTotal)} in add-ons` : "",
+    ].filter(Boolean).join(" - ") || `Pricing was imported into ${workOrderNumber || "this work order"}.`;
+  }
+
+  if (action === "created" && item.entity_type === "invoice") {
+    return `Total: ${detailCurrency(details, "total")} - Balance due: ${detailCurrency(details, "balance_due")}.`;
+  }
+
+  if (action === "deleted" && item.entity_type === "invoice") {
+    return `Invoice ${invoiceNumber || "record"} was removed from the billing queue.`;
+  }
+
+  const lineItemContext = parseLineItemChangeContext(item.action);
+  if (lineItemContext) return lineItemContext;
+
+  if (action.includes("created work order")) {
+    const parts: string[] = [];
+    const woTitle = detailString(details, "title");
+    const client = detailString(details, "client_name");
+    const template = detailString(details, "template_name");
+    if (woTitle) parts.push(woTitle);
+    if (client) parts.push(`Client: ${client}`);
+    if (template) parts.push(`Template: ${template}`);
+    return parts.length ? parts.join(" · ") : "A new work order entered the active pipeline.";
+  }
+  if (action.includes("submitted") && action.includes("review")) {
+    return "Status changed from Draft to Submitted for Review.";
+  }
+  if (action.includes("completed pricing")) {
+    return "Pricing moved to complete and is ready for invoice review.";
+  }
+  if (action.includes("added client")) {
+    return "A client record was added and is ready for work orders.";
+  }
+  if (action.includes("deleted invoice")) {
+    return "An invoice record was removed from the billing queue.";
+  }
+  if (action.includes("invoice")) {
+    return "Billing activity was recorded for this workspace.";
+  }
+
+  return `${getActivityCategory(item)} activity recorded.`;
+}
+
+function getActivityRoute(item: ActivityRow) {
+  if (!item.entity_id) return null;
+  if (item.action.toLowerCase().includes("deleted")) return null;
+
+  switch (item.entity_type) {
+    case "work_order":
+      return `/workorders/${item.entity_id}`;
+    case "invoice":
+      return `/invoices/${item.entity_id}`;
+    case "client":
+      return "/clients";
+    default:
+      return null;
+  }
+}
+
+function getActorRoute(item: ActivityRow, currentUserId: string | null) {
+  if (!item.actor_user_id) return null;
+  if (item.actor_user_id === currentUserId) return "/profile";
+  return "/workforce";
+}
+
+type SummaryChip = {
+  label: string;
+  tone: "add" | "remove" | "change";
+};
+
+function buildSummaryChips(details: Record<string, unknown> | null): SummaryChip[] {
+  if (!details) return [];
+  const summary = details.summary as Record<string, unknown> | undefined;
+  if (!summary) return [];
+  const chips: SummaryChip[] = [];
+  const added = Number(summary.added ?? 0);
+  const removed = Number(summary.removed ?? 0);
+  const changed = Number(summary.changed ?? 0);
+  if (added > 0) chips.push({ label: `+${added} added`, tone: "add" });
+  if (removed > 0) chips.push({ label: `−${removed} removed`, tone: "remove" });
+  if (changed > 0) chips.push({ label: `${changed} changed`, tone: "change" });
+  return chips;
+}
+
+function buildChangeLines(details: Record<string, unknown> | null): { lines: string[]; more: number } {
+  if (!details) return { lines: [], more: 0 };
+  const changes = details.line_item_changes as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(changes) || changes.length === 0) return { lines: [], more: 0 };
+
+  const lines: string[] = [];
+  for (const change of changes.slice(0, 2)) {
+    const type = String(change.type ?? "");
+    const num = change.inventory_number ? `#${change.inventory_number}` : "";
+    if (type === "added") {
+      const rowType = String(change.row_type ?? "item");
+      lines.push(`Line item ${num} added (${rowType})`);
+    } else if (type === "removed") {
+      lines.push(`Line item ${num} removed`);
+    } else if (type === "changed") {
+      const fields = change.fields as Record<string, { from: string; to: string }> | undefined;
+      if (fields) {
+        const firstField = Object.keys(fields)[0];
+        if (firstField) {
+          const f = fields[firstField];
+          lines.push(`Line item ${num} ${firstField}: ${f.from} → ${f.to}`);
+        }
+      }
+    }
+  }
+  const more = Math.max(0, changes.length - 2);
+  return { lines, more };
+}
+
+function getActivityHeadline(item: ActivityRow): string {
+  const action = item.action.toLowerCase();
+  const details = item.details ?? {};
+
+  if (action === "line_items_bulk_added") {
+    const total =
+      detailNumber(details, "added_count") ||
+      detailNumber(details, "measured_count") +
+        detailNumber(details, "labor_count") +
+        detailNumber(details, "material_count");
+    const label = total > 0 ? `${total} line item${total !== 1 ? "s" : ""}` : "line items";
+    return `Added ${label}`;
+  }
+
+  if (action === "line_item_updated") return "Updated a line item";
+  if (action === "line_items_updated") return "Updated line items";
+  if (action === "stage_changed") return "Stage changed";
+  if (action === "pricing_imported") return "Pricing imported";
+  if (action === "created" && item.entity_type === "invoice") return "Invoice created";
+  if (action === "deleted" && item.entity_type === "invoice") return "Invoice deleted";
+
+  // Natural-language action strings (e.g. "created work order WO-0003") stay as-is
+  if (item.action.includes(" ")) return sentenceCase(item.action);
+
+  // Final fallback: convert snake_case / kebab-case to Title Case
+  return titleCase(item.action);
+}
+
+function describeActivity(item: ActivityRow, currentUserId: string | null) {
+  const actor = item.actor_name?.trim() || (item.actor_user_id ? "Unknown actor" : "System");
+  const normalizedAction = item.action.toLowerCase();
+  const isDeleted = normalizedAction.includes("deleted") || normalizedAction === "deleted";
+  const { lines: changeLines, more: moreChanges } = buildChangeLines(item.details);
+
+  return {
+    actor,
+    actorRoute: getActorRoute(item, currentUserId),
+    category: getActivityCategory(item),
+    context: getActivityContext(item),
+    headline: getActivityHeadline(item),
+    statusLabel: isDeleted ? "Removed" : "Open",
+    route: getActivityRoute(item),
+    timeLabel: activityTimeLabel(item.created_at),
+    summaryChips: buildSummaryChips(item.details),
+    changeLines,
+    moreChanges,
+  };
+}
+
+const ACTIVITY_FILTERS: ActivityFilter[] = ["All", "Work Orders", "Invoices", "Pricing", "Team"];
+
+function getRecognizedRevenue(invoice: InvoiceRow) {
+  const total = Number(invoice.total ?? 0);
+  const balanceDue = Number(invoice.balance_due ?? 0);
+  const status = String(invoice.status ?? "").toLowerCase();
+
+  if (status === "paid") return Math.max(total, 0);
+  if (status === "partial") return Math.max(total - balanceDue, 0);
+  return 0;
+}
+
+function buildRevenueSeries(invoices: InvoiceRow[]): RevenuePoint[] {
+  const now = new Date();
+  const buckets: RevenuePoint[] = [];
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const bucketDate = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const key = `${bucketDate.getFullYear()}-${String(bucketDate.getMonth() + 1).padStart(2, "0")}`;
+
+    buckets.push({
+      key,
+      label: bucketDate.toLocaleDateString([], { month: "short" }),
+      revenue: 0,
+    });
+  }
+
+  const bucketMap = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+
+  for (const invoice of invoices) {
+    const dateValue = invoice.issue_date || invoice.created_at;
+    if (!dateValue) continue;
+
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) continue;
+
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = bucketMap.get(key);
+    if (!bucket) continue;
+
+    bucket.revenue += getRecognizedRevenue(invoice);
+  }
+
+  return buckets.map((bucket) => ({
+    ...bucket,
+    revenue: Number(bucket.revenue.toFixed(2)),
+  }));
+}
+
+const PENDING_STATUSES = ["new", "scheduled", "in_progress", "blocked"];
 
 export default function Dashboard() {
   const router = useRouter();
 
-  const [items, setItems] = useState<ActivityRow[]>([]);
-  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [orgName, setOrgName] = useState<string>("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [notificationError, setNotificationError] = useState("");
-  const [counts, setCounts] = useState<DashboardCounts>({
-    openWorkOrders: 0,
-    unpaidInvoices: 0,
-    clients: 0,
+  const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [stats, setStats] = useState<DashStats>({
+    revenue: 0,
+    totalWOs: 0,
+    pendingWOs: 0,
+    completedWOs: 0,
   });
-  const [pipeline, setPipeline] = useState<WorkOrderStatusCounts>({
-    draft: 0,
-    inProgress: 0,
-    submitted: 0,
-    approved: 0,
-    completed: 0,
-  });
-  const [revenue, setRevenue] = useState(0);
-  const [collectedRevenue, setCollectedRevenue] = useState(0);
-
-  const statTotal = useMemo(
-    () => Math.max(counts.openWorkOrders + counts.unpaidInvoices + counts.clients, 1),
-    [counts]
-  );
-
-  const stats = useMemo<DashboardStat[]>(
-    () => [
-      {
-        key: "openWorkOrders",
-        label: "Open Work Orders",
-        value: String(counts.openWorkOrders),
-        numericValue: counts.openWorkOrders,
-        actionLabel: "Open jobs",
-        onPress: () => router.push("/workorders"),
-        color: "#d4af37",
-        trackColor: "#f3e9c6",
-      },
-      {
-        key: "unpaidInvoices",
-        label: "Invoices (Unpaid)",
-        value: String(counts.unpaidInvoices),
-        numericValue: counts.unpaidInvoices,
-        actionLabel: "Review invoices",
-        onPress: () => router.push("/invoices"),
-        color: "#3b82f6",
-        trackColor: "#dceafe",
-      },
-      {
-        key: "clients",
-        label: "Clients",
-        value: String(counts.clients),
-        numericValue: counts.clients,
-        actionLabel: "View clients",
-        onPress: () => router.push("/clients"),
-        color: "#10b981",
-        trackColor: "#d9f9ee",
-      },
-    ],
-    [counts, router]
-  );
-
-  const visibleItems = useMemo(() => items.slice(0, 10), [items]);
-  const visibleNotifications = useMemo(() => notifications.slice(0, 6), [notifications]);
-  const unreadNotifications = useMemo(() => notifications.filter((item) => !item.read).length, [notifications]);
-
-  const attentionCards = useMemo(
-    () => [
-      {
-        title: "Needs pricing",
-        value: String(pipeline.draft),
-        subtitle: pipeline.draft === 1 ? "1 job still in draft" : `${pipeline.draft} jobs still in draft`,
-        tone: pipeline.draft > 0 ? ("warning" as const) : ("default" as const),
-      },
-      {
-        title: "Waiting review",
-        value: String(pipeline.submitted),
-        subtitle: pipeline.submitted === 1 ? "1 submitted work order" : `${pipeline.submitted} submitted work orders`,
-        tone: pipeline.submitted > 0 ? ("warning" as const) : ("default" as const),
-      },
-      {
-        title: "Ready to bill",
-        value: String(pipeline.completed),
-        subtitle: pipeline.completed === 1 ? "1 completed job" : `${pipeline.completed} completed jobs`,
-        tone: pipeline.completed > 0 ? ("good" as const) : ("default" as const),
-      },
-    ],
-    [pipeline]
-  );
-
-  const pipelineRows = useMemo(
-    () => [
-      { key: "draft", label: "Draft", value: pipeline.draft },
-      { key: "inProgress", label: "In Progress", value: pipeline.inProgress },
-      { key: "submitted", label: "Submitted", value: pipeline.submitted },
-      { key: "approved", label: "Approved", value: pipeline.approved },
-      { key: "completed", label: "Completed", value: pipeline.completed },
-    ],
-    [pipeline]
-  );
-
-  const pipelineMax = useMemo(() => Math.max(...pipelineRows.map((item) => item.value), 1), [pipelineRows]);
-
-  const loadDashboard = useCallback(async () => {
-    setNotificationError("");
-
-    const { data: auth } = await supabase.auth.getUser();
-    const userId = auth.user?.id;
-    if (!userId) return;
-
-    const orgId = await getUserOrgId(userId);
-    if (!orgId) return;
-
-    const [orgRes, activityRes, workOrdersRes, invoicesRes, clientsRes, allInvoicesRes] = await Promise.all([
-      supabase.from("organizations").select("name").eq("id", orgId).single(),
-      supabase
-        .from("activity_log")
-        .select("id, created_at, actor_name, action, entity_type, entity_id, details")
-        .eq("org_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(50),
-      supabase.from("work_orders").select("id, status").eq("org_id", orgId),
-      supabase.from("invoices").select("id, status").eq("org_id", orgId).neq("status", "paid").neq("status", "Paid"),
-      supabase.from("clients").select("id").eq("org_id", orgId),
-      supabase.from("invoices").select("id, status, total, balance_due").eq("org_id", orgId),
-    ]);
-
-    const allWorkOrders = (workOrdersRes.data ?? []) as Array<{ id: string; status?: string | null }>;
-    const openWorkOrders = allWorkOrders.filter((item) => {
-      const status = (item.status ?? "").trim().toLowerCase();
-      return status !== "closed" && status !== "completed" && status !== "complete";
-    });
-
-    const allInvoices = (allInvoicesRes.data ?? []) as Array<{
-      id: string;
-      status?: string | null;
-      total?: number | null;
-      balance_due?: number | null;
-    }>;
-
-    const grossRevenue = allInvoices.reduce((sum, item) => sum + Number(item.total ?? 0), 0);
-    const paidRevenue = allInvoices.reduce((sum, item) => {
-      const status = (item.status ?? "").trim().toLowerCase();
-      return status === "paid" ? sum + Number(item.total ?? 0) : sum;
-    }, 0);
-
-    setOrgName(orgRes.data?.name ?? "");
-    setItems((activityRes.data as ActivityRow[]) ?? []);
-    setCounts({
-      openWorkOrders: openWorkOrders.length,
-      unpaidInvoices: invoicesRes.data?.length ?? 0,
-      clients: clientsRes.data?.length ?? 0,
-    });
-    setRevenue(grossRevenue);
-    setCollectedRevenue(paidRevenue);
-    setPipeline(getPipelineCounts(allWorkOrders));
-
-    const notificationsRes = await supabase
-      .from("notifications")
-      .select("id, org_id, user_id, title, message, type, read, created_at, entity_type, entity_id")
-      .eq("org_id", orgId)
-      .or(`user_id.is.null,user_id.eq.${userId}`)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (notificationsRes.error) {
-      setNotifications([]);
-      setNotificationError("Add a notifications table to use dashboard notifications.");
-    } else {
-      setNotifications((notificationsRes.data as NotificationRow[]) ?? []);
-    }
-  }, []);
+  const [revenueData, setRevenueData] = useState<RevenuePoint[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("All");
+  const [showAllActivity, setShowAllActivity] = useState(false);
+  const [clearedIds, setClearedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
+    let cancelled = false;
 
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      await loadDashboard();
-    } finally {
-      setRefreshing(false);
-    }
-  }
+    async function load() {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const uid = authData?.user?.id;
+        if (!uid) return;
 
-  function clearActivityFeed() {
-    setItems([]);
-  }
+        setCurrentUserId(uid);
 
-  async function markNotificationAsRead(notificationId: string) {
-    setNotifications((prev) => prev.map((item) => (item.id === notificationId ? { ...item, read: true } : item)));
+        const orgId = await getUserOrgId(uid);
+        if (!orgId) return;
 
-    const res = await supabase.from("notifications").update({ read: true }).eq("id", notificationId);
+        const [activityRows, woRes, invoiceRes] = await Promise.all([
+          fetchActivityRows(orgId),
+          supabase
+            .from("work_orders")
+            .select("status")
+            .eq("org_id", orgId),
+          supabase
+            .from("invoices")
+            .select("total, balance_due, status, issue_date, created_at")
+            .eq("org_id", orgId)
+            .neq("status", "void"),
+        ]);
 
-    if (res.error) {
-      setNotifications((prev) => prev.map((item) => (item.id === notificationId ? { ...item, read: false } : item)));
-    }
-  }
+        if (cancelled) return;
 
-  async function markAllNotificationsAsRead() {
-    const unreadIds = notifications.filter((item) => !item.read).map((item) => item.id);
-    if (!unreadIds.length) return;
+        const wos = woRes.data ?? [];
+        const invoices = (invoiceRes.data ?? []) as InvoiceRow[];
+        const recognizedRevenue = invoices.reduce(
+          (sum, invoice) => sum + getRecognizedRevenue(invoice),
+          0
+        );
 
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+        setStats({
+          totalWOs: wos.length,
+          pendingWOs: wos.filter((w: { status: string | null }) =>
+            PENDING_STATUSES.includes(String(w.status ?? ""))
+          ).length,
+          completedWOs: wos.filter((w: { status: string | null }) => w.status === "completed").length,
+          revenue: Number(recognizedRevenue.toFixed(2)),
+        });
 
-    const res = await supabase.from("notifications").update({ read: true }).in("id", unreadIds);
-
-    if (res.error) {
-      await loadDashboard();
-    }
-  }
-
-  function openNotification(item: NotificationRow) {
-    if (item.entity_type === "work_order" && item.entity_id) {
-      router.push(`/workorders/${encodeURIComponent(item.entity_id)}`);
-      return;
-    }
-
-    if (item.entity_type === "invoice") {
-      router.push("/invoices");
-      return;
-    }
-
-    if (item.entity_type === "client") {
-      router.push("/clients");
-      return;
+        setRevenueData(buildRevenueSeries(invoices));
+        setActivity(activityRows);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
-    if (item.entity_type === "org_invite" || item.entity_type === "org_member") {
-      router.push("/team");
-      return;
-    }
-  }
+    void load();
 
-  function openActivity(item: ActivityRow) {
-    if (item.entity_type === "work_order") {
-      router.push(`/workorders/${encodeURIComponent(item.entity_id)}`);
-      return;
-    }
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
-    if (item.entity_type === "invoice") {
-      router.push("/invoices");
-      return;
-    }
+  const summary = [
+    {
+      label: "Revenue",
+      value: money(stats.revenue),
+      meta: "Collected from paid and partial invoices",
+      trend: {
+        value: stats.revenue > 0 ? "Live invoice data" : "No activity yet",
+        tone: "neutral" as const,
+      },
+    },
+    {
+      label: "Work Orders",
+      value: String(stats.totalWOs),
+      meta: "Total pipeline",
+      trend: { value: `${stats.totalWOs} total`, tone: "neutral" as const },
+    },
+    {
+      label: "Pending",
+      value: String(stats.pendingWOs),
+      meta: "Needs review or follow-up",
+      trend: {
+        value: stats.pendingWOs > 0 ? "In progress" : "Waiting on first submission",
+        tone: stats.pendingWOs > 0 ? ("neutral" as const) : ("negative" as const),
+      },
+    },
+    {
+      label: "Completed",
+      value: String(stats.completedWOs),
+      meta: "Closed and ready to bill",
+      trend: {
+        value: stats.completedWOs > 0 ? "Ready to bill" : "Ready to grow",
+        tone: "positive" as const,
+      },
+    },
+  ];
 
-    if (item.entity_type === "client") {
-      router.push("/clients");
-      return;
-    }
+  const filteredActivity = useMemo(() => {
+    if (activityFilter === "All") return activity;
+    return activity.filter((item) => {
+      const category = getActivityCategory(item);
+      if (activityFilter === "Work Orders") return category === "Work Order";
+      if (activityFilter === "Invoices") return category === "Invoice";
+      if (activityFilter === "Pricing") return category === "Pricing";
+      return category === "Team";
+    });
+  }, [activity, activityFilter]);
 
-    if (item.entity_type === "org_invite" || item.entity_type === "org_member") {
-      router.push("/team");
-    }
-  }
+  const unclearedActivity = useMemo(
+    () => filteredActivity.filter((item) => !clearedIds.has(item.id)),
+    [filteredActivity, clearedIds],
+  );
+
+  const visibleActivity = useMemo(
+    () =>
+      (showAllActivity ? unclearedActivity : unclearedActivity.slice(0, 10)).map((item) => ({
+        item,
+        display: describeActivity(item, currentUserId),
+      })),
+    [unclearedActivity, showAllActivity, currentUserId],
+  );
+
+  const hiddenCount = unclearedActivity.length - visibleActivity.length;
+
+  const maxRevenue = Math.max(...revenueData.map((point) => point.revenue), 0);
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.pagePad} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
-        <View style={styles.pageInner}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text style={styles.pageTitle}>Overview</Text>
-            </View>
+      <AppPage>
+        <PageHeader
+          eyebrow=""
+          title="Dashboard"
+          subtitle="Track revenue, work orders, and team activity from one consistent workspace."
+          actions={[
+            {
+              label: loading ? "Refreshing..." : "Refresh",
+              onPress: () => {
+                setLoading(true);
+                setRefreshKey((k) => k + 1);
+              },
+            },
+            {
+              label: "New Work Order",
+              primary: true,
+              onPress: () => router.push("/workorders/new"),
+            },
+          ]}
+        />
 
-            <View style={styles.headerActions}>
-              <QuickAction label="Refresh" onPress={handleRefresh} />
-              <QuickAction label="New Work Order" primary onPress={() => router.push("/workorders/new?new=1")} />
-              <QuickAction label="View Work Orders" onPress={() => router.push("/workorders")} />
-            </View>
-          </View>
+        <SummaryStrip>
+          {summary.map((item) => (
+            <SummaryCard
+              key={item.label}
+              label={item.label}
+              value={item.value}
+              meta={item.meta}
+              trend={item.trend}
+            />
+          ))}
+        </SummaryStrip>
 
-          <View style={styles.revenueHero}>
-            <View style={styles.revenueCopy}>
-              <Text style={styles.revenueEyebrow}>Revenue</Text>
-              <Text style={styles.revenueValue}>{money(revenue)}</Text>
-            </View>
+        <View style={styles.grid}>
+          <View style={styles.primaryColumn}>
+            <ContentCard
+              title="Operations Activity"
+              subtitle="A descriptive timeline of who changed what, where it happened, and why it matters."
+              meta={hiddenCount > 0 ? `+${hiddenCount} more` : undefined}
+            >
+              {loading ? (
+                <Text style={styles.feedMeta}>Loading activity...</Text>
+              ) : activity.length === 0 ? (
+                <EmptyState
+                  icon="pulse-outline"
+                  title="No activity yet"
+                  body="Create your first work order to start seeing team actions, billing updates, and workflow changes here."
+                  actionLabel="New Work Order"
+                  onAction={() => router.push("/workorders/new")}
+                />
+              ) : (
+                <View style={styles.feedStack}>
+                  <View style={styles.feedFilterRow}>
+                    {ACTIVITY_FILTERS.map((filter) => {
+                      const active = activityFilter === filter;
+                      return (
+                        <Pressable
+                          key={filter}
+                          onPress={() => setActivityFilter(filter)}
+                          style={({ pressed }) => [
+                            styles.feedFilterPill,
+                            active ? styles.feedFilterPillActive : null,
+                            pressed ? styles.feedRowPressed : null,
+                          ]}
+                        >
+                          <Text style={[styles.feedFilterText, active ? styles.feedFilterTextActive : null]}>
+                            {filter}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
 
-            <View style={styles.revenueStatsCol}>
-              <View style={styles.revenueMiniCard}>
-                <Text style={styles.revenueMiniLabel}>Collected</Text>
-                <Text style={styles.revenueMiniValue}>{money(collectedRevenue)}</Text>
+                    <View style={styles.feedFilterSpacer} />
+
+                    {unclearedActivity.length > 0 && (
+                      <Pressable
+                        onPress={() => {
+                          setClearedIds((prev) => {
+                            const next = new Set(prev);
+                            unclearedActivity.forEach((item) => next.add(item.id));
+                            return next;
+                          });
+                          setShowAllActivity(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.feedFilterPill,
+                          styles.feedFilterPillClear,
+                          pressed ? styles.feedRowPressed : null,
+                        ]}
+                      >
+                        <Text style={styles.feedFilterTextClear}>Clear</Text>
+                      </Pressable>
+                    )}
+                  </View>
+
+                  {visibleActivity.length === 0 ? (
+                    <View style={styles.feedEmptyFilter}>
+                      <Text style={styles.feedContext}>No {activityFilter.toLowerCase()} activity yet.</Text>
+                    </View>
+                  ) : (
+                    visibleActivity.map(({ item, display }, index) => (
+                      <View
+                        key={item.id}
+                        style={[
+                          styles.feedRow,
+                          index === visibleActivity.length - 1 ? styles.feedRowLast : null,
+                        ]}
+                      >
+                        <View style={styles.feedDotWrap}>
+                          <View style={styles.feedDot} />
+                        </View>
+
+                        <View style={styles.feedBody}>
+                          <View style={styles.feedTopLine}>
+                            <Text style={styles.feedBadge}>{display.category}</Text>
+                            <Text style={styles.feedMeta}>{display.timeLabel}</Text>
+                          </View>
+
+                          <View style={styles.feedSentenceRow}>
+                            <Pressable
+                              disabled={!display.actorRoute}
+                              onPress={() => {
+                                if (display.actorRoute) router.push(display.actorRoute as any);
+                              }}
+                              style={({ pressed }) => [
+                                styles.feedActorLink,
+                                pressed && display.actorRoute ? styles.feedActorLinkPressed : null,
+                              ]}
+                            >
+                              <Text style={styles.feedActor}>{display.actor}</Text>
+                            </Pressable>
+
+                            <Text style={styles.feedText}>{display.headline}</Text>
+                          </View>
+
+                          <Text style={styles.feedContext}>{display.context}</Text>
+
+                          {/* Summary chips from details.summary */}
+                          {display.summaryChips.length > 0 && (
+                            <View style={styles.feedChipsRow}>
+                              {display.summaryChips.map((chip) => (
+                                <View
+                                  key={chip.label}
+                                  style={[styles.feedChip, chip.tone === "add" ? styles.feedChipAdd : chip.tone === "remove" ? styles.feedChipRemove : styles.feedChipChange]}
+                                >
+                                  <Text style={[styles.feedChipText, chip.tone === "add" ? styles.feedChipTextAdd : chip.tone === "remove" ? styles.feedChipTextRemove : styles.feedChipTextChange]}>
+                                    {chip.label}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+
+                          {/* First 2 line item changes */}
+                          {display.changeLines.length > 0 && (
+                            <View style={styles.feedChangeLinesWrap}>
+                              {display.changeLines.map((line, i) => (
+                                <Text key={i} style={styles.feedChangeLine}>
+                                  {line}
+                                </Text>
+                              ))}
+                              {display.moreChanges > 0 && (
+                                <Text style={styles.feedChangeLineMore}>
+                                  +{display.moreChanges} more change{display.moreChanges > 1 ? "s" : ""}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+                        </View>
+
+                        <Pressable
+                          disabled={!display.route}
+                          onPress={() => {
+                            if (display.route) router.push(display.route as any);
+                          }}
+                          style={({ pressed }) => [
+                            styles.feedOpenAction,
+                            pressed && display.route ? styles.feedRowPressed : null,
+                          ]}
+                        >
+                          <Text style={[styles.feedOpenText, !display.route ? styles.feedClosedText : null]}>
+                            {display.statusLabel}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ))
+                  )}
+
+                  <View style={styles.feedFooterRow}>
+                    {unclearedActivity.length > 10 && (
+                      <Pressable
+                        style={[styles.feedFooterAction, styles.feedFooterActionPrimary]}
+                        onPress={() => setShowAllActivity((v) => !v)}
+                      >
+                        <Text style={styles.feedFooterTextPrimary}>
+                          {showAllActivity
+                            ? "Show less"
+                            : `Show all ${unclearedActivity.length}`}
+                        </Text>
+                      </Pressable>
+                    )}
+                    {clearedIds.size > 0 && (
+                      <Pressable
+                        style={styles.feedFooterAction}
+                        onPress={() => setClearedIds(new Set())}
+                      >
+                        <Text style={styles.feedFooterText}>
+                          Restore {clearedIds.size} cleared
+                        </Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      style={styles.feedFooterAction}
+                      onPress={() => router.push("/workorders")}
+                    >
+                      <Text style={styles.feedFooterText}>View work orders</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </ContentCard>
+
+            <ContentCard
+              title="Revenue trend"
+              subtitle="Linked to live invoice records so the chart reflects real collected revenue."
+            >
+              <View style={styles.chartPlaceholder}>
+                <View style={styles.chartBars}>
+                  {revenueData.map((point, index) => {
+                    const barHeight =
+                      maxRevenue > 0
+                        ? Math.max(20, Math.round((point.revenue / maxRevenue) * 110))
+                        : 20;
+
+                    return (
+                      <Pressable
+                        key={point.key}
+                        style={[
+                          styles.barWrap,
+                          index === revenueData.length - 1 ? styles.barWrapFeatured : null,
+                        ]}
+                        onPress={() => router.push("/invoices")}
+                      >
+                        <View style={[styles.bar, { height: barHeight }]} />
+                        <Text style={styles.barLabel}>{point.label}</Text>
+                        <Text style={styles.barValue}>{money(point.revenue)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.chartMeta}>
+                  {stats.revenue > 0
+                    ? `${money(stats.revenue)} total collected from paid and partial invoices.`
+                    : "No revenue recorded yet. The first paid invoice will start the trend graph."}
+                </Text>
               </View>
-              <View style={styles.revenueMiniCard}>
-                <Text style={styles.revenueMiniLabel}>Outstanding</Text>
-                <Text style={styles.revenueMiniValue}>{money(Math.max(revenue - collectedRevenue, 0))}</Text>
+            </ContentCard>
+          </View>
+
+          <View style={styles.secondaryColumn}>
+            <SoftAccentCard
+              title="Notifications"
+              body="Alerts stay compact here so the main dashboard can stay focused on operations."
+            >
+              <View style={styles.noticeStack}>
+                <Text style={styles.noticeText}>
+                  No notifications right now. New approvals and overdue alerts will appear here.
+                </Text>
+                <Pressable
+                  style={styles.secondaryBtn}
+                  onPress={() => router.push("/workorders")}
+                >
+                  <Text style={styles.secondaryBtnText}>View work orders</Text>
+                </Pressable>
               </View>
-            </View>
-          </View>
+            </SoftAccentCard>
 
-          <View style={styles.statsRow}>
-            {stats.map((stat) => (
-              <StatCard
-                key={stat.key}
-                label={stat.label}
-                value={stat.value}
-                numericValue={stat.numericValue}
-                total={statTotal}
-                actionLabel={stat.actionLabel}
-                onPress={stat.onPress}
-                color={stat.color}
-                trackColor={stat.trackColor}
-              />
-            ))}
-          </View>
-
-          <View style={styles.insightRow}>
-            {attentionCards.map((card) => (
-              <InsightCard key={card.title} title={card.title} value={card.value} subtitle={card.subtitle} tone={card.tone} />
-            ))}
-          </View>
-
-          <View style={styles.middleGrid}>
-            <View style={styles.pipelineCard}>
-              <Text style={styles.sectionTitle}>Work order pipeline</Text>
-
-              <View style={styles.pipelineList}>
-                {pipelineRows.map((row) => (
-                  <PipelineBar key={row.key} label={row.label} value={row.value} maxValue={pipelineMax} />
+            <ContentCard
+              title="Status snapshot"
+              subtitle="A compact read on the current pipeline."
+            >
+              <View style={styles.statusStack}>
+                {[
+                  ["Pending", String(stats.pendingWOs)],
+                  ["Completed", String(stats.completedWOs)],
+                  ["Total", String(stats.totalWOs)],
+                ].map(([label, value], index, array) => (
+                  <View
+                    key={label}
+                    style={[
+                      styles.statusRow,
+                      index === array.length - 1 ? styles.statusRowLast : null,
+                    ]}
+                  >
+                    <Text style={styles.statusLabel}>{label}</Text>
+                    <Text style={styles.statusValue}>{value}</Text>
+                  </View>
                 ))}
               </View>
-            </View>
-
-            <View style={styles.quickPanel}>
-              <Text style={styles.sectionTitle}>Quick actions</Text>
-
-              <View style={styles.actionGrid}>
-                <ActionCard title="New Work Order" subtitle="Create and assign a new job" primary onPress={() => router.push("/workorders/new?new=1")} />
-                <ActionCard title="Create Invoice" subtitle="Open invoices and collections" onPress={() => router.push("/invoices")} />
-                <ActionCard title="Add Client" subtitle="Manage customer records" onPress={() => router.push("/clients")} />
-                <ActionCard title="Open Workforce" subtitle="HR and employee operations" onPress={() => router.push("/workforce")} />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.lowerGrid}>
-            <View style={styles.activityCard}>
-              <View style={styles.activityTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionTitle}>Recent activity</Text>
-                </View>
-
-                <View style={styles.activityHeaderActions}>
-                  <View style={styles.lastCountPill}>
-                    <Text style={styles.lastCountPillText}>
-                      {visibleItems.length} of {items.length} items
-                    </Text>
-                  </View>
-                  <QuickAction label="Clear" destructive onPress={clearActivityFeed} />
-                </View>
-              </View>
-
-              <View style={styles.divider} />
-
-              <FlatList
-                data={visibleItems}
-                keyExtractor={(x) => x.id}
-                scrollEnabled={false}
-                renderItem={({ item, index }) => (
-                  <Pressable
-                    onPress={() => openActivity(item)}
-                    style={({ pressed }) => [styles.activityRow, index % 2 === 0 ? styles.activityRowStriped : null, pressed ? styles.activityRowPressed : null]}
-                  >
-                    <View style={styles.activityLeft}>
-                      <View style={styles.activityIconWrap}>
-                        <View style={[styles.dot, getActivityDotStyle(item)]} />
-                      </View>
-
-                      <View style={styles.activityTextWrap}>
-                        <View style={styles.activityTitleRow}>
-                          <Text style={styles.activityTitle} numberOfLines={2}>
-                            {buildActivityTitle(item)}
-                          </Text>
-                          <Text style={styles.badge}>{getActivityBadge(item)}</Text>
-                        </View>
-
-                        <Text style={styles.activityWhere} numberOfLines={1}>
-                          {buildActivityWhere(item)}
-                        </Text>
-
-                        <Text style={styles.activityMeta} numberOfLines={2}>
-                          {buildActivityMeta(item)}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                )}
-                ItemSeparatorComponent={() => <View style={styles.sep} />}
-                ListEmptyComponent={
-                  <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyTitle}>No activity yet</Text>
-                    <Text style={styles.empty}>Once work orders, invoices, clients, or team updates happen, they will show here.</Text>
-                  </View>
-                }
-                contentContainerStyle={visibleItems.length === 0 ? { paddingVertical: 18 } : { paddingVertical: 4 }}
-              />
-            </View>
-
-            <View style={styles.sideStack}>
-              <View style={styles.infoCard}>
-                <View style={styles.notificationsTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sideTitle}>Notifications</Text>
-                  </View>
-
-                  {unreadNotifications > 0 ? <QuickAction label="Mark all read" onPress={markAllNotificationsAsRead} /> : null}
-                </View>
-
-                {notificationError ? <Text style={styles.notificationSetupText}>{notificationError}</Text> : null}
-
-                {visibleNotifications.length === 0 ? (
-                  <View style={styles.notificationEmptyWrap}>
-                    <Text style={styles.notificationEmptyTitle}>No notifications</Text>
-                    <Text style={styles.notificationEmptyText}>New alerts will show here once your notifications table is active.</Text>
-                  </View>
-                ) : (
-                  <View style={styles.notificationList}>
-                    {visibleNotifications.map((item, index) => (
-                      <Pressable
-                        key={item.id}
-                        onPress={() => openNotification(item)}
-                        style={({ pressed }) => [styles.notificationRow, index !== visibleNotifications.length - 1 ? styles.notificationRowBorder : null, pressed ? styles.activityRowPressed : null]}
-                      >
-                        <View style={styles.notificationCopy}>
-                          <View style={styles.notificationTitleRow}>
-                            {!item.read ? <View style={styles.notificationUnreadDot} /> : null}
-                            <Text style={styles.notificationTitle} numberOfLines={1}>
-                              {item.title?.trim() || item.message?.trim() || "Notification"}
-                            </Text>
-                          </View>
-                          {item.message?.trim() ? (
-                            <Text style={styles.notificationMessage} numberOfLines={2}>
-                              {item.message}
-                            </Text>
-                          ) : null}
-                          <Text style={styles.notificationMeta}>{formatDateTime(item.created_at)}</Text>
-                        </View>
-
-                        {!item.read ? (
-                          <Pressable onPress={() => markNotificationAsRead(item.id)} style={styles.markReadBtn}>
-                            <Text style={styles.markReadBtnText}>Mark as read</Text>
-                          </Pressable>
-                        ) : (
-                          <View style={styles.readPill}>
-                            <Text style={styles.readPillText}>Read</Text>
-                          </View>
-                        )}
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </View>
-            </View>
+            </ContentCard>
           </View>
         </View>
-      </ScrollView>
+      </AppPage>
     </Screen>
   );
 }
 
-const CARD_BG = "#fffdf8";
-const PAGE_BG = "#f7f3ea";
-const BORDER = "#e4d6b2";
-const BORDER_SOFT = "#dcc89a";
-const GOLD = "#c9a227";
-const GOLD_BRIGHT = "#d4af37";
-const TEXT = "#111111";
-const MUTED = "#6f6a63";
-const MUTED_2 = "#7b746b";
-const DANGER = "#9f3b2f";
-const DANGER_BG = "#fff3ef";
-const DANGER_BORDER = "#efc8bc";
-
 const styles = StyleSheet.create({
-  pagePad: {
-    padding: 24,
-    backgroundColor: PAGE_BG,
-    minHeight: "100%",
-  },
-
-  pageInner: {
-    width: "100%",
-    maxWidth: 1280,
-    alignSelf: "center",
-  },
-
-  pressed: {
-    opacity: 0.92,
-  },
-
-  header: {
-    marginBottom: 22,
+  grid: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
     flexWrap: "wrap",
+    gap: 20,
+    alignItems: "flex-start",
   },
-
-  headerCopy: {
+  primaryColumn: {
+    flex: 1.8,
+    minWidth: 320,
+    gap: 20,
+  },
+  secondaryColumn: {
     flex: 1,
     minWidth: 280,
+    gap: 20,
   },
 
-  pageTitle: {
-    fontSize: 40,
-    fontWeight: "900",
-    color: TEXT,
-    lineHeight: 44,
+  feedStack: {
+    gap: 0,
   },
-
-  headerActions: {
-    flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-
-  revenueHero: {
-    marginBottom: 16,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: BORDER_SOFT,
-    backgroundColor: "#111111",
-    padding: 24,
-    flexDirection: "row",
-    gap: 16,
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-  },
-
-  revenueCopy: {
-    flex: 1,
-    minWidth: 260,
-    justifyContent: "center",
-  },
-
-  revenueEyebrow: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-
-  revenueValue: {
-    color: "#FFFFFF",
-    fontSize: 38,
-    lineHeight: 42,
-    fontWeight: "900",
-  },
-
-  revenueStatsCol: {
-    width: 260,
-    maxWidth: "100%",
-    gap: 12,
-  },
-
-  revenueMiniCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.35)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: 16,
-  },
-
-  revenueMiniLabel: {
-    color: GOLD_BRIGHT,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-
-  revenueMiniValue: {
-    marginTop: 8,
-    color: "#FFFFFF",
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: "900",
-  },
-
-  statsRow: {
+  feedFilterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
-    marginBottom: 14,
-  },
-
-  statCardPressable: {
-    flexBasis: 0,
-    flexGrow: 1,
-    minWidth: 260,
-  },
-
-  statCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 18,
-    minHeight: 176,
-    justifyContent: "space-between",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-
-  statTopRow: {
-    flexDirection: "row",
-    gap: 14,
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  statCopy: {
-    flex: 1,
-    paddingRight: 8,
-  },
-
-  statLabel: {
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-
-  statValue: {
-    color: TEXT,
-    fontSize: 32,
-    lineHeight: 36,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-
-  statFooter: {
-    marginTop: 18,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#efe4c8",
-  },
-
-  statFooterText: {
-    color: TEXT,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  doughnutWrap: {
-    width: 94,
-    height: 94,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-
-  doughnutShadowRing: {
-    position: "absolute",
-    backgroundColor: "rgba(0,0,0,0.04)",
-    transform: [{ scale: 0.88 }],
-  },
-
-  doughnutSvg: {
-    position: "absolute",
-  },
-
-  doughnutInner: {
-    backgroundColor: "#fff9ef",
-    borderWidth: 1,
-    borderColor: "rgba(201,162,39,0.12)",
-  },
-
-  insightRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 14,
-    marginBottom: 14,
-  },
-
-  insightCard: {
-    flexGrow: 1,
-    flexBasis: 0,
-    minWidth: 220,
-    backgroundColor: CARD_BG,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 18,
-  },
-
-  insightCardWarning: {
-    backgroundColor: "#fff8ee",
-    borderColor: "#edd3a2",
-  },
-
-  insightCardGood: {
-    backgroundColor: "#f7fff8",
-    borderColor: "#cfe5d2",
-  },
-
-  insightLabel: {
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: 10,
-  },
-
-  insightValue: {
-    color: TEXT,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: "900",
-  },
-
-  insightSub: {
-    marginTop: 8,
-    color: MUTED_2,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  middleGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 14,
-    marginBottom: 14,
-  },
-
-  pipelineCard: {
-    flex: 1.2,
-    minWidth: 320,
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
-  },
-
-  quickPanel: {
-    flex: 1,
-    minWidth: 320,
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
-  },
-
-  sectionTitle: {
-    color: TEXT,
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: "900",
-  },
-
-  pipelineList: {
-    marginTop: 18,
-    gap: 14,
-  },
-
-  pipelineRow: {
     gap: 8,
+    paddingBottom: 10,
   },
-
-  pipelineTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  pipelineLabel: {
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  pipelineValue: {
-    color: MUTED,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-
-  pipelineTrack: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#efe7d3",
-    overflow: "hidden",
-  },
-
-  pipelineFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: GOLD_BRIGHT,
-  },
-
-  actionGrid: {
-    marginTop: 18,
-    gap: 12,
-  },
-
-  actionCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    padding: 16,
-  },
-
-  actionCardPrimary: {
-    backgroundColor: "#111111",
-    borderColor: "#111111",
-  },
-
-  actionCardTitle: {
-    color: TEXT,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "900",
-  },
-
-  actionCardTitlePrimary: {
-    color: "#FFFFFF",
-  },
-
-  actionCardSubtitle: {
-    marginTop: 8,
-    color: MUTED_2,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  actionCardSubtitlePrimary: {
-    color: "rgba(255,255,255,0.76)",
-  },
-
-  lowerGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 14,
-  },
-
-  activityCard: {
-    flex: 1.2,
-    minWidth: 360,
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
-  },
-
-  activityTop: {
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-  },
-
-  activityHeaderActions: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-
-  lastCountPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fff8ea",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-
-  lastCountPillText: {
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#efe4c8",
-    marginTop: 16,
-    marginBottom: 10,
-  },
-
-  sep: {
-    height: 1,
-    backgroundColor: "#f1e6cf",
-    marginVertical: 2,
-  },
-
-  activityRow: {
-    borderRadius: 18,
+  feedFilterPill: {
+    minHeight: 32,
     paddingHorizontal: 10,
-    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    justifyContent: "center",
   },
-
-  activityRowStriped: {
-    backgroundColor: "#fffcf5",
+  feedFilterPillActive: {
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
   },
-
-  activityRowPressed: {
-    opacity: 0.9,
+  feedFilterText: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
   },
-
-  activityLeft: {
+  feedFilterTextActive: {
+    color: theme.colors.goldDark,
+  },
+  feedEmptyFilter: {
+    minHeight: 72,
+    justifyContent: "center",
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  feedRow: {
     flexDirection: "row",
-    gap: 12,
-  },
-
-  activityIconWrap: {
-    width: 22,
-    alignItems: "center",
-    paddingTop: 6,
-  },
-
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-  },
-
-  dotWorkOrder: {
-    backgroundColor: GOLD_BRIGHT,
-  },
-
-  dotInvoice: {
-    backgroundColor: "#3b82f6",
-  },
-
-  dotClient: {
-    backgroundColor: "#10b981",
-  },
-
-  dotInvite: {
-    backgroundColor: "#8b5cf6",
-  },
-
-  dotTeam: {
-    backgroundColor: "#f97316",
-  },
-
-  activityTextWrap: {
-    flex: 1,
-    gap: 6,
-  },
-
-  activityTitleRow: {
-    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 10,
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-  },
-
-  activityTitle: {
-    flex: 1,
-    color: TEXT,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "900",
-  },
-
-  badge: {
-    color: GOLD,
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-
-  activityWhere: {
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-
-  activityMeta: {
-    color: MUTED_2,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-
-  emptyWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 24,
-    paddingHorizontal: 12,
-  },
-
-  emptyTitle: {
-    color: TEXT,
-    fontSize: 18,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-
-  empty: {
-    color: MUTED_2,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 21,
-    textAlign: "center",
-    maxWidth: 420,
-  },
-
-  sideStack: {
-    flex: 0.9,
-    minWidth: 320,
-    gap: 14,
-  },
-
-  infoCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
-  },
-
-  sideTitle: {
-    color: TEXT,
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: "900",
-  },
-
-  quickAction: {
-    minHeight: 42,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  quickActionPrimary: {
-    backgroundColor: GOLD_BRIGHT,
-    borderColor: GOLD_BRIGHT,
-  },
-
-  quickActionDestructive: {
-    backgroundColor: DANGER_BG,
-    borderColor: DANGER_BORDER,
-  },
-
-  quickActionText: {
-    color: TEXT,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  quickActionTextPrimary: {
-    color: "#111111",
-  },
-
-  quickActionTextDestructive: {
-    color: DANGER,
-  },
-
-  notificationsTop: {
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-    marginBottom: 14,
-  },
-
-  notificationSetupText: {
-    color: DANGER,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "800",
-    marginBottom: 10,
-  },
-
-  notificationEmptyWrap: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: "#fffaf0",
-    padding: 16,
-  },
-
-  notificationEmptyTitle: {
-    color: TEXT,
-    fontSize: 16,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-
-  notificationEmptyText: {
-    color: MUTED_2,
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  notificationList: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    overflow: "hidden",
-    backgroundColor: "#fffaf0",
-  },
-
-  notificationRow: {
-    padding: 14,
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  notificationRowBorder: {
+    paddingHorizontal: 8,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1e6cf",
+    borderBottomColor: theme.colors.border,
+    borderRadius: 12,
   },
-
-  notificationCopy: {
-    flex: 1,
+  feedRowLast: {
+    borderBottomWidth: 0,
   },
-
-  notificationTitleRow: {
-    flexDirection: "row",
+  feedRowPressed: {
+    backgroundColor: "#EFF6FF",
+  },
+  feedDotWrap: {
+    width: 18,
     alignItems: "center",
-    gap: 8,
+    paddingTop: 5,
   },
-
-  notificationUnreadDot: {
+  feedDot: {
     width: 8,
     height: 8,
-    borderRadius: 999,
-    backgroundColor: GOLD_BRIGHT,
+    borderRadius: 4,
+    backgroundColor: theme.colors.gold,
+    marginTop: 5,
+    flexShrink: 0,
   },
-
-  notificationTitle: {
+  feedBody: {
     flex: 1,
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "900",
+    gap: 5,
   },
-
-  notificationMessage: {
-    marginTop: 6,
-    color: MUTED_2,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "700",
+  feedTopLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
   },
-
-  notificationMeta: {
-    marginTop: 6,
-    color: MUTED,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-
-  markReadBtn: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: "#fffdf8",
-  },
-
-  markReadBtnText: {
-    color: GOLD,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  readPill: {
+  feedBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: "#f5efe0",
-  },
-
-  readPillText: {
-    color: MUTED,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+    color: theme.colors.goldDark,
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
+    letterSpacing: 0.35,
+  },
+  feedText: {
+    flexShrink: 1,
+    fontSize: 13.5,
+    fontWeight: "500",
+    color: theme.colors.ink,
+    lineHeight: 19,
+  },
+  feedSentenceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  feedActorLink: {
+    borderRadius: 6,
+  },
+  feedActorLinkPressed: {
+    backgroundColor: "#EFF6FF",
+  },
+  feedActor: {
+    fontWeight: "800",
+    color: theme.colors.goldDark,
+    fontSize: 13.5,
+    lineHeight: 19,
+  },
+  feedMeta: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    fontWeight: "500",
+  },
+  feedContext: {
+    fontSize: 12.5,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  feedOpenText: {
+    color: theme.colors.goldDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  feedOpenAction: {
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderRadius: 6,
+    marginTop: 18,
+  },
+  feedClosedText: {
+    color: theme.colors.muted,
+  },
+  feedFooterAction: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedFooterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  feedFooterText: {
+    color: theme.colors.goldDark,
+    fontSize: 12.5,
+    fontWeight: "900",
+  },
+  feedFooterActionPrimary: {
+    borderColor: theme.colors.gold,
+    backgroundColor: theme.colors.gold2,
+  },
+  feedFooterTextPrimary: {
+    color: theme.colors.goldDark,
+    fontSize: 12.5,
+    fontWeight: "900",
+  },
+  feedFilterSpacer: {
+    flex: 1,
+  },
+  feedFilterPillClear: {
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  feedFilterTextClear: {
+    color: "#B91C1C",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  feedChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 2,
+  },
+  feedChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  feedChipAdd: {
+    backgroundColor: "#DCFCE7",
+  },
+  feedChipRemove: {
+    backgroundColor: "#FEE2E2",
+  },
+  feedChipChange: {
+    backgroundColor: "#FEF9C3",
+  },
+  feedChipText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  feedChipTextAdd: {
+    color: "#166534",
+  },
+  feedChipTextRemove: {
+    color: "#991B1B",
+  },
+  feedChipTextChange: {
+    color: "#854D0E",
+  },
+  feedChangeLinesWrap: {
+    marginTop: 3,
+    gap: 2,
+  },
+  feedChangeLine: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    fontStyle: "italic",
+  },
+  feedChangeLineMore: {
+    fontSize: 11,
+    color: theme.colors.mutedSoft,
+    fontWeight: "700",
+  },
+
+  chartPlaceholder: {
+    gap: 14,
+  },
+  chartBars: {
+    minHeight: 180,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+  },
+  barWrap: {
+    flex: 1,
+    minHeight: 120,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    overflow: "hidden",
+    paddingBottom: 8,
+    paddingHorizontal: 4,
+  },
+  barWrapFeatured: {
+    backgroundColor: "#EDE9FE",
+  },
+  bar: {
+    borderRadius: 12,
+    backgroundColor: theme.colors.gold,
+    width: "100%",
+    maxWidth: 28,
+  },
+  barLabel: {
+    marginTop: 8,
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: theme.colors.muted,
+    textTransform: "uppercase",
+  },
+  barValue: {
+    marginTop: 2,
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  chartMeta: {
+    color: theme.colors.muted,
+    fontSize: 12.5,
+    fontWeight: "500",
+  },
+
+  noticeStack: {
+    marginTop: 8,
+    gap: 12,
+  },
+  noticeText: {
+    color: theme.colors.ink,
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  secondaryBtn: {
+    minHeight: 40,
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnText: {
+    color: theme.colors.goldDark,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  statusStack: {
+    gap: 0,
+  },
+  statusRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  statusRowLast: {
+    borderBottomWidth: 0,
+  },
+  statusLabel: {
+    color: theme.colors.ink,
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  statusValue: {
+    color: theme.colors.ink,
+    fontSize: 13.5,
+    fontWeight: "900",
   },
 });
