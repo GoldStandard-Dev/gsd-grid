@@ -50,7 +50,7 @@ serve(async (req) => {
       subject: "You're invited to GSD Grid",
       html: `
         <div style="font-family:Arial,sans-serif;color:#111;padding:24px;">
-          <h2 style="margin:0 0 12px;">You’ve been invited to GSD Grid</h2>
+          <h2 style="margin:0 0 12px;">You've been invited to GSD Grid</h2>
           <p style="margin:0 0 18px;line-height:1.6;">
             Click the button below to sign in and accept your team invite.
           </p>

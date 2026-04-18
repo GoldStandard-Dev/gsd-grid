@@ -15,8 +15,8 @@ type UserProfile = {
 
 const PALETTE = {
   black: theme.colors.ink,
-  gold: theme.colors.gold,
-  goldDark: theme.colors.goldDark,
+  gold: theme.colors.primary,
+  goldDark: theme.colors.primaryHover,
   white: theme.colors.surface,
   panel: theme.colors.surface2,
   border: theme.colors.border,
@@ -125,7 +125,11 @@ export default function TopBarProfile() {
     <>
       <Pressable
         onPress={() => setMenuOpen(true)}
-        style={({ pressed }) => [styles.trigger, pressed ? styles.pressed : null]}
+        style={({ pressed }) => [
+          styles.trigger,
+          pressed ? styles.triggerHover : null,
+          pressed ? styles.pressed : null,
+        ]}
       >
         <View style={styles.identityWrap}>
           {profile.avatar_url ? (
@@ -238,6 +242,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
   },
+  triggerHover: {
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.primarySoft,
+  },
 
   identityWrap: {
     flexDirection: "row",
@@ -258,7 +266,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#FFF5D6",
+    backgroundColor: theme.colors.primarySoft,
     borderWidth: 1,
     borderColor: PALETTE.border,
     alignItems: "center",
@@ -328,7 +336,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#FFF5D6",
+    backgroundColor: theme.colors.primarySoft,
     borderWidth: 1,
     borderColor: PALETTE.border,
     alignItems: "center",
@@ -364,7 +372,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: PALETTE.border,
-    backgroundColor: "#FFFDF8",
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },

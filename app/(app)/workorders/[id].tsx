@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,9 +17,12 @@ import * as Print from "expo-print";
 import Screen from "../../../src/components/Screen";
 import GoldButton from "../../../src/components/GoldButton";
 import { supabase } from "../../../src/lib/supabase";
+import { logActivity } from "../../../src/lib/activity";
+import { theme } from "../../../src/theme/theme";
 import {
   cleanDecimalInput,
   formatCurrencyDisplay,
+  formatInvoiceNumber,
   formatPercentDisplay,
   formatWorkOrderNumber,
 } from "../../../src/lib/format";
@@ -35,6 +39,14 @@ type WorkOrder = {
   due_date: string | null;
   created_at: string;
   work_order_number?: number | null;
+};
+
+type LinkedInvoice = {
+  id: string;
+  invoice_number: number | null;
+  status: string | null;
+  total: number | null;
+  balance_due: number | null;
 };
 
 type Profile = {
@@ -74,6 +86,17 @@ type RowMeta = {
   fields?: Record<string, string>;
 };
 
+type PricingLineOption = {
+  enabled: boolean;
+  label: string;
+  showQuantity: boolean;
+  showMeasurement: boolean;
+  amountEditable: boolean;
+  pricingBehavior: "unit" | "fixed";
+};
+
+type PricingLineOptions = Record<RowType, PricingLineOption>;
+
 type GridRow = {
   id?: string;
   inventory_number: number;
@@ -93,12 +116,15 @@ type InvoiceVisibility = {
   showNotes: boolean;
   showMeasurement: boolean;
   showInstallation: boolean;
+  showLabor: boolean;
+  showMaterial: boolean;
   showDeposit: boolean;
   showSignature: boolean;
 };
 
 type GridVisibility = {
   showQty: boolean;
+  showMeasurement: boolean;
   showAmount: boolean;
 };
 
@@ -115,11 +141,31 @@ type ReviewWorkflow = {
   note?: string;
 };
 
+type HeaderColumnRole = "primary" | "measurement" | "descriptor" | "attribute" | "system";
+type HeaderDisplayStyle = "dropdown" | "pills" | "segmented" | "text" | "measurement";
+type HeaderMeasurementUnit = "inches" | "feet" | "sqft";
+type HeaderMeasurementFormat = "width_height" | "single_value";
+
 type CustomHeader = {
   id: string;
   label: string;
   enabled: boolean;
+  fieldType?: "text" | "dropdown" | "number" | "date" | "notes" | "measurement";
+  columnRole?: HeaderColumnRole;
+  optionSource?: string;
   options?: string[];
+  placeholder?: string;
+  defaultValue?: string;
+  required?: boolean;
+  helpText?: string;
+  widthSize?: "small" | "medium" | "large" | "full";
+  displayStyle?: HeaderDisplayStyle;
+  allowManualEntry?: boolean;
+  multiSelect?: boolean;
+  measurementUnit?: HeaderMeasurementUnit;
+  measurementFractions?: boolean;
+  measurementFormat?: HeaderMeasurementFormat;
+  conditionalLogic?: { showIfFieldId: string; showIfValue: string } | null;
 };
 
 type AssignmentMeta = {
@@ -131,6 +177,8 @@ type AssignmentMeta = {
 type WorkOrderMeta = {
   notes?: string;
   installation?: number;
+  labor?: number;
+  material?: number;
   deposit?: number;
   tax_rate_override?: number;
   customHeaders?: CustomHeader[];
@@ -138,8 +186,28 @@ type WorkOrderMeta = {
   invoiceVisibility?: Partial<InvoiceVisibility>;
   gridVisibility?: Partial<GridVisibility>;
   reviewWorkflow?: Partial<ReviewWorkflow>;
+  pricingLineOptions?: Partial<Record<RowType, Partial<PricingLineOption>>>;
   assignedTo?: AssignmentMeta;
   createdBy?: AssignmentMeta;
+  archivedAt?: string;
+  archivedBy?: string;
+};
+
+type ImportableCollection = {
+  id: string;
+  name: string;
+  pricing_mode: string;
+  industry_type: string;
+};
+
+type ImportPreviewRow = {
+  rowIndex: number;
+  inventoryNum: number;
+  currentAmount: string;
+  newAmountRaw: number;
+  newAmountDisplay: string;
+  source: string;
+  selected: boolean;
 };
 
 type FractionField = "width_frac" | "length_frac";
@@ -150,12 +218,17 @@ type FractionPickerState = {
   field: FractionField | null;
   anchorX: number;
   anchorY: number;
+  anchorYTop: number;
   anchorWidth: number;
 };
 
 type RowTypePickerState = {
   visible: boolean;
   rowIndex: number;
+  anchorX: number;
+  anchorY: number;
+  anchorYTop: number;
+  anchorWidth: number;
 };
 
 type HeaderOptionPickerState = {
@@ -166,26 +239,10 @@ type HeaderOptionPickerState = {
   options: string[];
   anchorX: number;
   anchorY: number;
+  anchorYTop: number;
   anchorWidth: number;
 };
 
-const PALETTE = {
-  ink: "#111111",
-  inkSoft: "#1B1B1B",
-  gold: "#D4AF37",
-  goldDark: "#B8962E",
-  goldSoft: "#F5E6B8",
-  bg: "#FAF7F0",
-  card: "#FFFFFF",
-  cardSoft: "#FFFDF8",
-  border: "#E8DFC7",
-  borderSoft: "#F1E7D2",
-  muted: "#6B6B6B",
-  mutedSoft: "#8B7A60",
-  blue: "#1976D2",
-  green: "#2E7D32",
-  red: "#C14343",
-};
 
 const FRACTION_OPTIONS = [
   "",
@@ -214,16 +271,46 @@ const ROW_TYPE_OPTIONS: { value: RowType; label: string }[] = [
   { value: "material", label: "Material" },
 ];
 
+const DEFAULT_PRICING_LINE_OPTIONS: PricingLineOptions = {
+  measured: {
+    enabled: true,
+    label: "Measured",
+    showQuantity: true,
+    showMeasurement: true,
+    amountEditable: true,
+    pricingBehavior: "unit",
+  },
+  labor: {
+    enabled: true,
+    label: "Labor",
+    showQuantity: false,
+    showMeasurement: false,
+    amountEditable: true,
+    pricingBehavior: "fixed",
+  },
+  material: {
+    enabled: true,
+    label: "Material",
+    showQuantity: false,
+    showMeasurement: false,
+    amountEditable: true,
+    pricingBehavior: "fixed",
+  },
+};
+
 const DEFAULT_INVOICE_VISIBILITY: InvoiceVisibility = {
   showNotes: true,
   showMeasurement: true,
   showInstallation: true,
+  showLabor: true,
+  showMaterial: true,
   showDeposit: true,
   showSignature: true,
 };
 
 const DEFAULT_GRID_VISIBILITY: GridVisibility = {
   showQty: true,
+  showMeasurement: true,
   showAmount: true,
 };
 
@@ -231,6 +318,34 @@ const DEFAULT_REVIEW_WORKFLOW: ReviewWorkflow = {
   status: "draft",
   note: "",
 };
+
+const GRID_SYSTEM_FIELDS: CustomHeader[] = [
+  {
+    id: "measurement",
+    label: "MEASUREMENT",
+    enabled: true,
+    fieldType: "measurement",
+    columnRole: "measurement",
+    placeholder: "Width x Height",
+    widthSize: "large",
+    displayStyle: "measurement",
+    measurementUnit: "inches",
+    measurementFractions: true,
+    measurementFormat: "width_height",
+  },
+  {
+    id: "color",
+    label: "ITEM / COLOR",
+    enabled: true,
+    fieldType: "dropdown",
+    columnRole: "descriptor",
+    options: ["White", "Bronze", "Black", "Custom"],
+    placeholder: "Select item or color",
+    widthSize: "large",
+    displayStyle: "dropdown",
+    allowManualEntry: true,
+  },
+];
 
 const FINANCIAL_ROLES = [
   "owner",
@@ -313,11 +428,139 @@ const DEFAULT_TEMPLATE_HEADERS: Record<string, CustomHeader[]> = {
   ],
 };
 
-function cloneHeaders(headers: CustomHeader[]) {
-  return headers.map((header) => ({
+// Shared column widths: single source of truth for header and every row.
+const COLS = {
+  inv:     72,   // inventory #
+  type:   112,   // row type
+  qty:     68,   // qty
+  measure: 316,  // measurement (W x L inputs)
+  item:   220,   // item / SKU
+  custom: 118,   // each custom header column
+  amount: 112,   // amount
+  actions: 90,   // duplicate / delete
+} as const;
+
+const ROW_HEIGHT = 52;
+const DROPDOWN_SCREEN_GUTTER = 12;
+const FRACTION_DROPDOWN_MAX_HEIGHT = 330;
+const HEADER_OPTION_DROPDOWN_MAX_HEIGHT = 340;
+const ALIGNMENT_OPTION_ORDER = ["Standard", "Left", "Center", "Right"];
+
+function isAlignmentOptionMenu(options: string[]) {
+  const optionSet = new Set(options.filter(Boolean));
+  return ALIGNMENT_OPTION_ORDER.every((option) => optionSet.has(option));
+}
+
+function orderedHeaderOptions(options: string[]) {
+  const cleanOptions = options.filter((option, index) => !(index === 0 && option === ""));
+  if (!isAlignmentOptionMenu(cleanOptions)) return cleanOptions;
+
+  const rankedOptions = new Set(ALIGNMENT_OPTION_ORDER);
+  return [
+    ...ALIGNMENT_OPTION_ORDER.filter((option) => cleanOptions.includes(option)),
+    ...cleanOptions.filter((option) => !rankedOptions.has(option)),
+  ];
+}
+
+function isSystemGridHeader(header: CustomHeader) {
+  return header.id === "measurement" || header.id === "color";
+}
+
+function normalizeHeader(header: CustomHeader, index = 0): CustomHeader {
+  const fieldType = header.fieldType ?? (header.options?.length ? "dropdown" : "text");
+  const columnRole =
+    header.columnRole ??
+    (header.id === "measurement"
+      ? "measurement"
+      : header.id === "color"
+        ? "descriptor"
+        : index === 0
+          ? "primary"
+          : "attribute");
+  const displayStyle =
+    header.displayStyle ??
+    (fieldType === "measurement" ? "measurement" : fieldType === "dropdown" ? "dropdown" : "text");
+
+  return {
     ...header,
+    enabled: header.enabled !== false,
+    fieldType,
+    columnRole,
+    displayStyle,
     options: [...(header.options ?? [])],
-  }));
+    measurementUnit: header.measurementUnit ?? "inches",
+    measurementFractions: header.measurementFractions ?? true,
+    measurementFormat: header.measurementFormat ?? "width_height",
+    conditionalLogic: header.conditionalLogic ?? null,
+  };
+}
+
+function cloneHeaders(headers: CustomHeader[]) {
+  const nextHeaders = headers.map((header, index) => normalizeHeader(header, index));
+  const existingIds = new Set(nextHeaders.map((header) => header.id));
+  const missingSystemFields = GRID_SYSTEM_FIELDS.filter((header) => !existingIds.has(header.id));
+  return [
+    ...missingSystemFields.map((header, index) => normalizeHeader(header, index)),
+    ...nextHeaders,
+  ];
+}
+
+function gridColumnWidth(header: CustomHeader) {
+  if (header.columnRole === "measurement" || header.fieldType === "measurement") return COLS.measure;
+  if (header.columnRole === "descriptor" || header.columnRole === "primary" || header.id === "color") return COLS.item;
+
+  switch (header.widthSize) {
+    case "small":
+      return 104;
+    case "large":
+      return 176;
+    case "full":
+      return 220;
+    default:
+      return COLS.custom;
+  }
+}
+
+function getGridHeaderValue(row: GridRow, headerId: string) {
+  if (headerId === "measurement") return formatMeasurement(row);
+  if (headerId === "color") return row.color ?? "";
+  return row.extra?.[headerId] ?? "";
+}
+
+function dropdownAnchorStyle(
+  anchorX: number,
+  anchorY: number,
+  anchorYTop: number,
+  anchorWidth: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  minWidth: number,
+  maxHeight: number
+) {
+  if (!anchorX && !anchorY) return null;
+
+  const width = Math.max(minWidth, anchorWidth || minWidth);
+  const left = Math.min(
+    Math.max(DROPDOWN_SCREEN_GUTTER, anchorX),
+    Math.max(DROPDOWN_SCREEN_GUTTER, viewportWidth - width - DROPDOWN_SCREEN_GUTTER)
+  );
+  const opensUp = anchorY + maxHeight > viewportHeight - DROPDOWN_SCREEN_GUTTER;
+
+  if (opensUp) {
+    return {
+      left,
+      bottom: Math.max(DROPDOWN_SCREEN_GUTTER, viewportHeight - anchorYTop + 4),
+      minWidth: width,
+      maxHeight,
+    };
+  }
+
+  return {
+    left,
+    top: Math.max(DROPDOWN_SCREEN_GUTTER, anchorY),
+    minWidth: width,
+    maxHeight,
+  };
 }
 
 function n(v: string) {
@@ -390,6 +633,8 @@ function buildWorkOrderDescription(meta: WorkOrderMeta) {
   const payload: WorkOrderMeta = {
     notes: (meta.notes ?? "").trim() || undefined,
     installation: Number.isFinite(meta.installation as number) ? meta.installation : undefined,
+    labor: Number.isFinite(meta.labor as number) ? meta.labor : undefined,
+    material: Number.isFinite(meta.material as number) ? meta.material : undefined,
     deposit: Number.isFinite(meta.deposit as number) ? meta.deposit : undefined,
     tax_rate_override: Number.isFinite(meta.tax_rate_override as number) ? meta.tax_rate_override : undefined,
     customHeaders: meta.customHeaders?.length ? meta.customHeaders : undefined,
@@ -398,11 +643,50 @@ function buildWorkOrderDescription(meta: WorkOrderMeta) {
       meta.invoiceVisibility && Object.keys(meta.invoiceVisibility).length ? meta.invoiceVisibility : undefined,
     gridVisibility: meta.gridVisibility && Object.keys(meta.gridVisibility).length ? meta.gridVisibility : undefined,
     reviewWorkflow: meta.reviewWorkflow && Object.keys(meta.reviewWorkflow).length ? meta.reviewWorkflow : undefined,
+    pricingLineOptions:
+      meta.pricingLineOptions && Object.keys(meta.pricingLineOptions).length ? meta.pricingLineOptions : undefined,
     assignedTo: meta.assignedTo?.userId ? meta.assignedTo : undefined,
     createdBy: meta.createdBy?.userId ? meta.createdBy : undefined,
+    archivedAt: meta.archivedAt || undefined,
+    archivedBy: meta.archivedBy || undefined,
   };
 
   return JSON.stringify(payload);
+}
+
+function normalizePricingLineOptions(
+  options: WorkOrderMeta["pricingLineOptions"] | undefined
+): PricingLineOptions {
+  return ROW_TYPE_OPTIONS.reduce((acc, option) => {
+    const saved = options?.[option.value];
+    const label = saved?.label?.trim() || DEFAULT_PRICING_LINE_OPTIONS[option.value].label;
+    acc[option.value] = {
+      enabled:
+        option.value === "measured"
+          ? true
+          : typeof saved?.enabled === "boolean"
+            ? saved.enabled
+            : DEFAULT_PRICING_LINE_OPTIONS[option.value].enabled,
+      label,
+      showQuantity:
+        typeof saved?.showQuantity === "boolean"
+          ? saved.showQuantity
+          : DEFAULT_PRICING_LINE_OPTIONS[option.value].showQuantity,
+      showMeasurement:
+        typeof saved?.showMeasurement === "boolean"
+          ? saved.showMeasurement
+          : DEFAULT_PRICING_LINE_OPTIONS[option.value].showMeasurement,
+      amountEditable:
+        typeof saved?.amountEditable === "boolean"
+          ? saved.amountEditable
+          : DEFAULT_PRICING_LINE_OPTIONS[option.value].amountEditable,
+      pricingBehavior:
+        saved?.pricingBehavior === "unit" || saved?.pricingBehavior === "fixed"
+          ? saved.pricingBehavior
+          : DEFAULT_PRICING_LINE_OPTIONS[option.value].pricingBehavior,
+    };
+    return acc;
+  }, {} as PricingLineOptions);
 }
 
 function onlyWholeNumber(raw: string) {
@@ -470,6 +754,15 @@ function formatMeasurement(row: GridRow) {
   return left || right;
 }
 
+function parseMeasurementDecimal(whole: string, frac: string): number {
+  const w = Number(whole || "0");
+  const parts = (frac || "").split("/");
+  const f = parts.length === 2 && Number(parts[1]) !== 0
+    ? Number(parts[0]) / Number(parts[1])
+    : 0;
+  return w + f;
+}
+
 function parseMeasurement(raw: string | null | undefined) {
   const text = (raw ?? "").trim();
 
@@ -482,7 +775,7 @@ function parseMeasurement(raw: string | null | undefined) {
     };
   }
 
-  const normalized = text.replace(/×/g, "x").replace(/\s+/g, " ").trim();
+  const normalized = text.replace(/\u00d7/g, "x").replace(/\s+/g, " ").trim();
   const parts = normalized.split(/\s*x\s*/i);
 
   const parseSide = (side: string | undefined) => {
@@ -532,8 +825,8 @@ function csvEscape(value: string | number | null | undefined) {
   return s;
 }
 
-function rowTypeLabel(value: RowType) {
-  return ROW_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? "Measured";
+function rowTypeLabel(value: RowType, options: PricingLineOptions = DEFAULT_PRICING_LINE_OPTIONS) {
+  return options[value]?.label || ROW_TYPE_OPTIONS.find((option) => option.value === value)?.label || "Measured";
 }
 
 function reviewStatusLabel(value: ReviewStatus) {
@@ -549,36 +842,571 @@ function reviewStatusLabel(value: ReviewStatus) {
   }
 }
 
-function rowLineTotal(row: GridRow) {
-  if (row.row_type === "measured") {
-    return n(row.qty || "1") * n(row.amount || "1");
+function rowLineTotal(row: GridRow, pricingLineOptions: PricingLineOptions = DEFAULT_PRICING_LINE_OPTIONS) {
+  const lineOption = pricingLineOptions[row.row_type] ?? DEFAULT_PRICING_LINE_OPTIONS[row.row_type];
+  if (lineOption.pricingBehavior === "unit") {
+    return n(row.qty || "1") * n(row.amount || "0");
   }
   return n(row.amount || "0");
 }
+
+type LineItemSnapshot = {
+  sort_order?: number | null;
+  qty?: number | string | null;
+  unit?: string | null;
+  item?: string | null;
+  description?: string | null;
+  unit_price?: number | string | null;
+};
+
+function normalizedLineItemDescription(raw: string | null | undefined) {
+  const meta = parseRowMeta(raw);
+  const fields = Object.fromEntries(
+    Object.entries(meta.fields ?? {})
+      .map(([key, value]) => [key, String(value ?? "").trim()] as const)
+      .filter(([, value]) => value.length > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+  );
+
+  return JSON.stringify({
+    rowType: meta.rowType ?? "measured",
+    notes: (meta.notes ?? "").trim(),
+    fields,
+  });
+}
+
+function lineItemSnapshotKey(item: LineItemSnapshot) {
+  return JSON.stringify({
+    sort_order: Number(item.sort_order ?? 0),
+    qty: Number(item.qty ?? 0),
+    unit: (item.unit ?? "").trim(),
+    item: (item.item ?? "").trim(),
+    description: normalizedLineItemDescription(item.description),
+    unit_price: Number(item.unit_price ?? 0),
+  });
+}
+
+function hasLineItemDetails(item: LineItemSnapshot) {
+  const meta = parseRowMeta(item.description);
+  const hasMetaValue = (meta.notes ?? "").trim().length > 0 ||
+    Object.values(meta.fields ?? {}).some((value) => String(value ?? "").trim().length > 0);
+
+  return (
+    (item.unit ?? "").trim().length > 0 ||
+    (item.item ?? "").trim().length > 0 ||
+    hasMetaValue ||
+    Number(item.unit_price ?? 0) !== 0 ||
+    Number(item.qty ?? 1) !== 1
+  );
+}
+
+function hasGridRowDetails(row: GridRow) {
+  return (
+    row.row_type !== "measured" ||
+    formatMeasurement(row).trim().length > 0 ||
+    row.color.trim().length > 0 ||
+    row.amount.trim().length > 0 ||
+    Object.values(row.extra ?? {}).some((value) => String(value ?? "").trim().length > 0) ||
+    n(row.qty || "1") !== 1
+  );
+}
+
+function countLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function workOrderActivityLabel(wo: WorkOrder) {
+  const formatted = formatWorkOrderNumber(wo.work_order_number);
+  return formatted === "-" ? wo.id : formatted;
+}
+
+function countGridRowsByType(rows: GridRow[]) {
+  return rows.reduce(
+    (acc, row) => {
+      acc[row.row_type] += 1;
+      return acc;
+    },
+    { measured: 0, labor: 0, material: 0 } as Record<RowType, number>
+  );
+}
+
+// Memoized grid row.
+type GridRowProps = {
+  row: GridRow;
+  idx: number;
+  isStriped: boolean;
+  pricingLineOptions: PricingLineOptions;
+  visibleCustomHeaders: CustomHeader[];
+  showQty: boolean;
+  effectiveShowAmount: boolean;
+  canEditFieldRows: boolean;
+  canEditFinancials: boolean;
+  onSetCell: (idx: number, key: keyof GridRow, value: string | number | undefined) => void;
+  onSetExtra: (idx: number, headerId: string, value: string) => void;
+  onOpenFractionPicker: (rowIdx: number, field: FractionField) => void;
+  onOpenHeaderOptionPicker: (rowIdx: number, header: CustomHeader) => void;
+  onOpenRowTypePicker: (rowIdx: number) => void;
+  onDuplicate: (idx: number) => void;
+  onDelete: (idx: number) => void;
+  fractionAnchorRefs: React.MutableRefObject<Record<string, View | null>>;
+  headerOptionAnchorRefs: React.MutableRefObject<Record<string, View | null>>;
+  rowTypeAnchorRefs: React.MutableRefObject<Record<string, View | null>>;
+};
+
+const MemoGridRow = memo(function GridRowInner({
+  row, idx, isStriped,
+  pricingLineOptions,
+  visibleCustomHeaders, showQty, effectiveShowAmount,
+  canEditFieldRows, canEditFinancials,
+  onSetCell, onSetExtra,
+  onOpenFractionPicker, onOpenHeaderOptionPicker, onOpenRowTypePicker,
+  onDuplicate, onDelete,
+  fractionAnchorRefs, headerOptionAnchorRefs, rowTypeAnchorRefs,
+}: GridRowProps) {
+  const lineOption = pricingLineOptions[row.row_type] ?? DEFAULT_PRICING_LINE_OPTIONS[row.row_type];
+  const canEditRowAmount = canEditFinancials && lineOption.amountEditable;
+  const line = rowLineTotal(row, pricingLineOptions);
+
+  // Applies conditional logic — only show headers whose condition is met for this row's values
+  const rowVisibleHeaders = visibleCustomHeaders.filter((header) => {
+    if (!header.conditionalLogic?.showIfFieldId) return true;
+    const { showIfFieldId, showIfValue } = header.conditionalLogic;
+    const controlValue = getGridHeaderValue(row, showIfFieldId).trim().toLowerCase();
+    const triggerValue = (showIfValue ?? "").trim().toLowerCase();
+    return triggerValue === "" || controlValue === triggerValue;
+  });
+
+  const setHeaderValue = (header: CustomHeader, value: string) => {
+    if (header.id === "color") {
+      onSetCell(idx, "color", value);
+      return;
+    }
+    onSetExtra(idx, header.id, value);
+  };
+
+  const renderMeasurementCell = (header: CustomHeader) => {
+    const width = gridColumnWidth(header);
+    const fractionsEnabled = header.measurementFractions !== false;
+
+    return (
+      <View key={header.id} style={[styles.tdCell, styles.measurementFieldCell, { width }]}>
+        {lineOption.showMeasurement ? (
+          <View style={styles.measureShell}>
+            <Text style={styles.measureMiniLabel}>W</Text>
+            <TextInput
+              value={row.width_whole}
+              onChangeText={(v) => onSetCell(idx, "width_whole", onlyWholeNumber(v))}
+              style={[styles.measureInput, styles.measureWhole]}
+              placeholder="0"
+              placeholderTextColor={theme.colors.muted}
+              keyboardType="numeric"
+              editable={canEditFieldRows}
+            />
+            {fractionsEnabled ? (
+              <View
+                ref={(node) => { fractionAnchorRefs.current[`${idx}-width_frac`] = node; }}
+                collapsable={false}
+              >
+                <Pressable
+                  disabled={!canEditFieldRows}
+                  onPress={() => onOpenFractionPicker(idx, "width_frac")}
+                  style={[styles.fractionDropdownField, !canEditFieldRows ? styles.readOnlyInput : null]}
+                >
+                  <Text style={styles.fractionDropdownText}>{row.width_frac || ""}</Text>
+                  <Ionicons name="chevron-down" size={13} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+            ) : null}
+            <Text style={styles.measureX}>x</Text>
+            <Text style={styles.measureMiniLabel}>H</Text>
+            <TextInput
+              value={row.length_whole}
+              onChangeText={(v) => onSetCell(idx, "length_whole", onlyWholeNumber(v))}
+              style={[styles.measureInput, styles.measureWhole]}
+              placeholder="0"
+              placeholderTextColor={theme.colors.muted}
+              keyboardType="numeric"
+              editable={canEditFieldRows}
+            />
+            {fractionsEnabled ? (
+              <View
+                ref={(node) => { fractionAnchorRefs.current[`${idx}-length_frac`] = node; }}
+                collapsable={false}
+              >
+                <Pressable
+                  disabled={!canEditFieldRows}
+                  onPress={() => onOpenFractionPicker(idx, "length_frac")}
+                  style={[styles.fractionDropdownField, !canEditFieldRows ? styles.readOnlyInput : null]}
+                >
+                  <Text style={styles.fractionDropdownText}>{row.length_frac || ""}</Text>
+                  <Ionicons name="chevron-down" size={13} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <View style={styles.noMeasurementBox}>
+            <Ionicons
+              name={row.row_type === "labor" ? "hammer-outline" : "cube-outline"}
+              size={14}
+              color={theme.colors.mutedSoft}
+            />
+            <Text style={styles.noMeasurementText}>
+              {rowTypeLabel(row.row_type, pricingLineOptions)}
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderHeaderField = (header: CustomHeader) => {
+    if (header.fieldType === "measurement" || header.columnRole === "measurement") {
+      return renderMeasurementCell(header);
+    }
+
+    const width = gridColumnWidth(header);
+    const hasOptions = (header.options ?? []).length > 0;
+    const currentValue = getGridHeaderValue(row, header.id);
+    const placeholder = header.placeholder?.trim() || header.label;
+    const displayStyle = header.displayStyle ?? (hasOptions ? "dropdown" : "text");
+
+    if (hasOptions && (displayStyle === "pills" || displayStyle === "segmented")) {
+      return (
+        <View key={header.id} style={[styles.tdCell, styles.fieldChoiceCell, { width }]}>
+          <View style={displayStyle === "segmented" ? styles.fieldSegmentedWrap : styles.fieldPillWrap}>
+            {(header.options ?? []).slice(0, 4).map((option) => {
+              const active = currentValue === option;
+              return (
+                <Pressable
+                  key={option}
+                  disabled={!canEditFieldRows}
+                  onPress={() => setHeaderValue(header, active ? "" : option)}
+                  style={[
+                    displayStyle === "segmented" ? styles.fieldSegment : styles.fieldPill,
+                    active ? styles.fieldChoiceActive : null,
+                    !canEditFieldRows ? styles.disabledBtn : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.fieldChoiceText,
+                      active ? styles.fieldChoiceTextActive : null,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {header.allowManualEntry ? (
+            <TextInput
+              value={currentValue}
+              onChangeText={(value) => setHeaderValue(header, value)}
+              style={styles.fieldInlineInput}
+              placeholder="Custom"
+              placeholderTextColor={theme.colors.muted}
+              editable={canEditFieldRows}
+            />
+          ) : null}
+        </View>
+      );
+    }
+
+    if (hasOptions && displayStyle !== "text") {
+      return (
+        <View
+          key={header.id}
+          ref={(node) => { headerOptionAnchorRefs.current[`${idx}-${header.id}`] = node; }}
+          collapsable={false}
+          style={{ width }}
+        >
+          <View style={[styles.tdCell, styles.customHybridCell, { width }]}>
+            {header.allowManualEntry ? (
+              <TextInput
+                value={currentValue}
+                onChangeText={(value) => setHeaderValue(header, value)}
+                style={styles.customHybridInput}
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.muted}
+                editable={canEditFieldRows}
+              />
+            ) : (
+              <Pressable
+                disabled={!canEditFieldRows}
+                onPress={() => onOpenHeaderOptionPicker(idx, header)}
+                style={styles.customHybridPress}
+              >
+                <Text
+                  style={[styles.customSelectCellText, !currentValue ? styles.customSelectPlaceholder : null]}
+                  numberOfLines={1}
+                >
+                  {currentValue || placeholder}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              disabled={!canEditFieldRows}
+              onPress={() => onOpenHeaderOptionPicker(idx, header)}
+              style={[styles.customHybridButton, !canEditFieldRows ? styles.disabledBtn : null]}
+            >
+              <Ionicons name="chevron-down" size={12} color={theme.colors.ink} />
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <TextInput
+        key={header.id}
+        value={currentValue}
+        onChangeText={(value) => setHeaderValue(header, value)}
+        style={[styles.tdCell, styles.tdInput, { width }]}
+        placeholder={placeholder}
+        placeholderTextColor={theme.colors.muted}
+        keyboardType={header.fieldType === "number" ? "numeric" : "default"}
+        multiline={header.fieldType === "notes"}
+        editable={canEditFieldRows}
+      />
+    );
+  };
+
+  return (
+    <View style={[styles.tr, isStriped ? styles.trStriped : null]}>
+
+      {/* INV # */}
+      <View style={[styles.tdCell, { width: COLS.inv }, styles.tdCenter, styles.tdGold]}>
+        <Text style={styles.inventoryText}>{row.inventory_number}</Text>
+      </View>
+
+      {/* TYPE */}
+      <View
+        ref={(node) => { rowTypeAnchorRefs.current[String(idx)] = node; }}
+        collapsable={false}
+        style={{ width: COLS.type }}
+      >
+        <Pressable
+          onPress={() => onOpenRowTypePicker(idx)}
+          style={[styles.tdCell, { width: COLS.type }, styles.tdCenter, styles.tdLight]}
+        >
+          <Text style={styles.rowTypeCellText}>{rowTypeLabel(row.row_type, pricingLineOptions)}</Text>
+          <Ionicons name="chevron-down" size={12} color={theme.colors.ink} />
+        </Pressable>
+      </View>
+
+      {/* QTY */}
+      {showQty ? (
+        lineOption.showQuantity ? (
+          <TextInput
+            value={row.qty}
+            onChangeText={(v) => onSetCell(idx, "qty", onlyWholeNumber(v))}
+            style={[styles.tdCell, styles.tdInput, { width: COLS.qty, textAlign: "center" }]}
+            placeholder="1"
+            placeholderTextColor={theme.colors.muted}
+            keyboardType="numeric"
+            editable={canEditFieldRows}
+          />
+        ) : (
+          <View style={[styles.tdCell, { width: COLS.qty }, styles.tdCenter, styles.tdDimmed]}>
+            <Text style={styles.qtyHiddenText}>-</Text>
+          </View>
+        )
+      ) : null}
+
+      {/* Builder-driven fields */}
+      {rowVisibleHeaders.map((header) => renderHeaderField(header))}
+      {false ? (
+        <View style={[styles.tdCell, { width: COLS.measure, paddingHorizontal: 8, paddingVertical: 6 }]}>
+          {lineOption.showMeasurement ? (
+            <View style={styles.measureShell}>
+              <Text style={styles.measureMiniLabel}>W</Text>
+              <TextInput
+                value={row.width_whole}
+                onChangeText={(v) => onSetCell(idx, "width_whole", onlyWholeNumber(v))}
+                style={[styles.measureInput, styles.measureWhole]}
+                placeholder="0"
+                placeholderTextColor={theme.colors.muted}
+                keyboardType="numeric"
+              />
+              <View
+                ref={(node) => { fractionAnchorRefs.current[`${idx}-width_frac`] = node; }}
+                collapsable={false}
+              >
+                <Pressable
+                  onPress={() => onOpenFractionPicker(idx, "width_frac")}
+                  style={styles.fractionDropdownField}
+                >
+                  <Text style={styles.fractionDropdownText}>{row.width_frac || ""}</Text>
+                  <Ionicons name="chevron-down" size={13} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+              <Text style={styles.measureX}>x</Text>
+              <Text style={styles.measureMiniLabel}>L</Text>
+              <TextInput
+                value={row.length_whole}
+                onChangeText={(v) => onSetCell(idx, "length_whole", onlyWholeNumber(v))}
+                style={[styles.measureInput, styles.measureWhole]}
+                placeholder="0"
+                placeholderTextColor={theme.colors.muted}
+                keyboardType="numeric"
+              />
+              <View
+                ref={(node) => { fractionAnchorRefs.current[`${idx}-length_frac`] = node; }}
+                collapsable={false}
+              >
+                <Pressable
+                  onPress={() => onOpenFractionPicker(idx, "length_frac")}
+                  style={styles.fractionDropdownField}
+                >
+                  <Text style={styles.fractionDropdownText}>{row.length_frac || ""}</Text>
+                  <Ionicons name="chevron-down" size={13} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noMeasurementBox}>
+              <Ionicons
+                name={row.row_type === "labor" ? "hammer-outline" : "cube-outline"}
+                size={14}
+                color={theme.colors.mutedSoft}
+              />
+              <Text style={styles.noMeasurementText}>
+                {rowTypeLabel(row.row_type, pricingLineOptions)}
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {false ? (
+      <TextInput
+        value={row.color}
+        onChangeText={(v) => onSetCell(idx, "color", v)}
+        style={[styles.tdCell, styles.tdInput, { width: COLS.item }]}
+        placeholder={
+          row.row_type === "labor" ? `${rowTypeLabel(row.row_type, pricingLineOptions)} item / service`
+          : row.row_type === "material" ? `${rowTypeLabel(row.row_type, pricingLineOptions)} / SKU`
+          : "Color / SKU"
+        }
+        placeholderTextColor={theme.colors.muted}
+      />
+      ) : null}
+
+      {/* CUSTOM HEADERS — conditional logic applied per row */}
+      {false ? rowVisibleHeaders.map((header) => {
+        const hasOptions = (header.options ?? []).length > 0;
+        const currentValue = row.extra?.[header.id] ?? "";
+        if (hasOptions) {
+          return (
+            <View
+              key={header.id}
+              ref={(node) => { headerOptionAnchorRefs.current[`${idx}-${header.id}`] = node; }}
+              collapsable={false}
+              style={{ width: COLS.custom }}
+            >
+              <Pressable
+                onPress={() => onOpenHeaderOptionPicker(idx, header)}
+                style={[styles.tdCell, styles.customSelectCell, { width: COLS.custom }]}
+              >
+                <Text
+                  style={[styles.customSelectCellText, !currentValue ? styles.customSelectPlaceholder : null]}
+                  numberOfLines={1}
+                >
+                  {currentValue || header.label}
+                </Text>
+                <Ionicons name="chevron-down" size={12} color={theme.colors.ink} />
+              </Pressable>
+            </View>
+          );
+        }
+        return (
+          <TextInput
+            key={header.id}
+            value={currentValue}
+            onChangeText={(v) => onSetExtra(idx, header.id, v)}
+            style={[styles.tdCell, styles.tdInput, { width: COLS.custom }]}
+            placeholder={header.label}
+            placeholderTextColor={theme.colors.muted}
+          />
+        );
+      }) : null}
+
+      {/* AMOUNT */}
+      {effectiveShowAmount ? (
+        <View style={[styles.tdCell, { width: COLS.amount }, styles.amountWrap]}>
+          <TextInput
+            value={row.amount}
+            onChangeText={(v) => onSetCell(idx, "amount", formatCurrencyDisplay(v))}
+            style={[styles.tdInput, styles.amountInput, !canEditRowAmount ? styles.readOnlyAmountInput : null]}
+            placeholder={lineOption.pricingBehavior === "unit" ? "Unit $" : "Amount"}
+            placeholderTextColor={theme.colors.muted}
+            keyboardType="numeric"
+            editable={canEditRowAmount}
+          />
+          <Text style={styles.lineTotal}>{money(line)}</Text>
+        </View>
+      ) : null}
+
+      {/* ACTIONS */}
+      <View style={[styles.tdCell, { width: COLS.actions }, styles.actionsCell]}>
+        <Pressable
+          onPress={() => canEditFieldRows ? onDuplicate(idx) : null}
+          style={({ pressed }) => [styles.smallBtn, pressed ? { opacity: 0.85 } : null]}
+        >
+          <Ionicons name="copy-outline" size={15} color={theme.colors.ink} />
+        </Pressable>
+        <Pressable
+          onPress={() => canEditFieldRows ? onDelete(idx) : null}
+          style={({ pressed }) => [styles.smallBtnDanger, pressed ? { opacity: 0.85 } : null]}
+        >
+          <Ionicons name="trash-outline" size={15} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
+  );
+});
 
 export default function WorkOrderDetail() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
   const [wo, setWo] = useState<WorkOrder | null>(null);
+  const [linkedInvoice, setLinkedInvoice] = useState<LinkedInvoice | null>(null);
   const [rows, setRows] = useState<GridRow[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("viewer");
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [showPricingImport, setShowPricingImport] = useState(false);
+  const [importCollections, setImportCollections] = useState<ImportableCollection[]>([]);
+  const [importSelectedId, setImportSelectedId] = useState("");
+  const [importLoading, setImportLoading] = useState(false);
+  const [importPreviewRows, setImportPreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [importAdjustments, setImportAdjustments] = useState({ installation: 0, labor: 0, material: 0 });
 
   const [woMeta, setWoMeta] = useState<WorkOrderMeta>({
     notes: "",
     installation: 0,
+    labor: 0,
+    material: 0,
     deposit: 0,
     gridVisibility: DEFAULT_GRID_VISIBILITY,
     reviewWorkflow: DEFAULT_REVIEW_WORKFLOW,
@@ -597,11 +1425,16 @@ export default function WorkOrderDetail() {
     field: null,
     anchorX: 0,
     anchorY: 0,
+    anchorYTop: 0,
     anchorWidth: 0,
   });
   const [rowTypePicker, setRowTypePicker] = useState<RowTypePickerState>({
     visible: false,
     rowIndex: -1,
+    anchorX: 0,
+    anchorY: 0,
+    anchorYTop: 0,
+    anchorWidth: 0,
   });
   const [headerOptionPicker, setHeaderOptionPicker] = useState<HeaderOptionPickerState>({
     visible: false,
@@ -611,12 +1444,14 @@ export default function WorkOrderDetail() {
     options: [],
     anchorX: 0,
     anchorY: 0,
+    anchorYTop: 0,
     anchorWidth: 0,
   });
   const [lastCombinedRows, setLastCombinedRows] = useState<GridRow[] | null>(null);
 
   const fractionAnchorRefs = useRef<Record<string, View | null>>({});
   const headerOptionAnchorRefs = useRef<Record<string, View | null>>({});
+  const rowTypeAnchorRefs = useRef<Record<string, View | null>>({});
 
   const invoiceVisibility = useMemo<InvoiceVisibility>(
     () => ({ ...DEFAULT_INVOICE_VISIBILITY, ...(woMeta.invoiceVisibility ?? {}) }),
@@ -628,12 +1463,27 @@ export default function WorkOrderDetail() {
     [woMeta.gridVisibility]
   );
 
+  const pricingLineOptions = useMemo<PricingLineOptions>(
+    () => normalizePricingLineOptions(woMeta.pricingLineOptions),
+    [woMeta.pricingLineOptions]
+  );
+
+  const enabledPricingLineOptions = useMemo(
+    () => ROW_TYPE_OPTIONS.filter((option) => pricingLineOptions[option.value].enabled),
+    [pricingLineOptions]
+  );
+
   const reviewWorkflow = useMemo<ReviewWorkflow>(
     () => ({ ...DEFAULT_REVIEW_WORKFLOW, ...(woMeta.reviewWorkflow ?? {}) }),
     [woMeta.reviewWorkflow]
   );
 
-  const visibleCustomHeaders = useMemo(() => customHeaders.filter((header) => header.enabled), [customHeaders]);
+  const visibleGridHeaders = useMemo(() => customHeaders.filter((header) => header.enabled), [customHeaders]);
+  const visibleCustomHeaders = useMemo(
+    () => visibleGridHeaders.filter((header) => !isSystemGridHeader(header)),
+    [visibleGridHeaders]
+  );
+
 
   const taxRate = useMemo(() => {
     const override = woMeta.tax_rate_override;
@@ -655,8 +1505,18 @@ export default function WorkOrderDetail() {
     (assignedToMe && reviewWorkflow.status === "draft") ||
     (hasRole(currentUserRole, FIELD_EDIT_ROLES) && canManageReview);
   const canEditFinancials = canViewFinancials && reviewWorkflow.status !== "submitted_for_review";
-  const canConvertToInvoice = canViewFinancials && reviewWorkflow.status === "priced";
-  const effectiveShowAmount = canViewFinancials ? gridVisibility.showAmount : false;
+  const canConvertToInvoice = canViewFinancials && reviewWorkflow.status === "priced" && !linkedInvoice;
+  const isReviewStage =
+    reviewWorkflow.status === "submitted_for_review" ||
+    reviewWorkflow.status === "in_review" ||
+    reviewWorkflow.status === "priced";
+  const lockAmountVisible = isReviewStage;
+  const pricingUnlocked = canViewFinancials && isReviewStage;
+  const effectiveShowAmount = pricingUnlocked;
+  const canConfigurePricingLines = canEditFieldRows || canViewFinancials;
+  const canViewPricingTotals = pricingUnlocked;
+  const canViewPricing = pricingUnlocked;
+  const isArchived = !!woMeta.archivedAt;
 
   useEffect(() => {
     void loadAll();
@@ -730,6 +1590,30 @@ export default function WorkOrderDetail() {
 
       const woRow = (woRes.data as WorkOrder) ?? null;
       setWo(woRow);
+      setLinkedInvoice(null);
+
+      if (woRow) {
+        const invoiceRes = await supabase
+          .from("invoices")
+          .select("id, invoice_number, status, total, balance_due")
+          .eq("org_id", woRow.org_id)
+          .eq("work_order_id", woRow.id)
+          .neq("status", "void")
+          .order("invoice_number", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!invoiceRes.error && invoiceRes.data) {
+          const invoiceRow = invoiceRes.data as any;
+          setLinkedInvoice({
+            id: invoiceRow.id,
+            invoice_number: invoiceRow.invoice_number ?? null,
+            status: invoiceRow.status ?? null,
+            total: Number(invoiceRow.total ?? 0),
+            balance_due: Number(invoiceRow.balance_due ?? 0),
+          });
+        }
+      }
 
       let loadedHeaders = cloneHeaders(DEFAULT_TEMPLATE_HEADERS.General);
       let loadedTemplateName = "General";
@@ -741,6 +1625,8 @@ export default function WorkOrderDetail() {
         setWoMeta({
           notes: meta.notes ?? "",
           installation: typeof meta.installation === "number" ? meta.installation : 0,
+          labor: typeof meta.labor === "number" ? meta.labor : 0,
+          material: typeof meta.material === "number" ? meta.material : 0,
           deposit: typeof meta.deposit === "number" ? meta.deposit : 0,
           tax_rate_override: typeof meta.tax_rate_override === "number" ? meta.tax_rate_override : undefined,
           customHeaders: meta.customHeaders ?? undefined,
@@ -748,8 +1634,11 @@ export default function WorkOrderDetail() {
           invoiceVisibility: meta.invoiceVisibility ?? undefined,
           gridVisibility: meta.gridVisibility ?? DEFAULT_GRID_VISIBILITY,
           reviewWorkflow: meta.reviewWorkflow ?? DEFAULT_REVIEW_WORKFLOW,
+          pricingLineOptions: meta.pricingLineOptions ?? undefined,
           assignedTo: meta.assignedTo ?? undefined,
           createdBy: meta.createdBy ?? undefined,
+          archivedAt: meta.archivedAt ?? undefined,
+          archivedBy: meta.archivedBy ?? undefined,
         });
 
         if (meta.selectedTemplateName?.trim()) {
@@ -768,11 +1657,15 @@ export default function WorkOrderDetail() {
         setWoMeta({
           notes: "",
           installation: 0,
+          labor: 0,
+          material: 0,
           deposit: 0,
           gridVisibility: DEFAULT_GRID_VISIBILITY,
           reviewWorkflow: DEFAULT_REVIEW_WORKFLOW,
           assignedTo: undefined,
           createdBy: undefined,
+          archivedAt: undefined,
+          archivedBy: undefined,
         });
       }
 
@@ -865,15 +1758,15 @@ export default function WorkOrderDetail() {
     }
   }
 
-  function setCellByIndex(idx: number, key: keyof GridRow, value: string | number | undefined) {
+  const setCellByIndex = useCallback((idx: number, key: keyof GridRow, value: string | number | undefined) => {
     setRows((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [key]: value };
       return next;
     });
-  }
+  }, []);
 
-  function setExtraCellByIndex(idx: number, headerId: string, value: string) {
+  const setExtraCellByIndex = useCallback((idx: number, headerId: string, value: string) => {
     setRows((prev) => {
       const next = [...prev];
       next[idx] = {
@@ -885,7 +1778,7 @@ export default function WorkOrderDetail() {
       };
       return next;
     });
-  }
+  }, []);
 
   function setRowTypeByIndex(idx: number, value: RowType) {
     setRows((prev) => {
@@ -914,6 +1807,7 @@ export default function WorkOrderDetail() {
         field,
         anchorX: 0,
         anchorY: 0,
+        anchorYTop: 0,
         anchorWidth: 120,
       });
       return;
@@ -927,6 +1821,7 @@ export default function WorkOrderDetail() {
           field,
           anchorX: x,
           anchorY: y + height + 4,
+          anchorYTop: y,
           anchorWidth: width,
         });
       });
@@ -937,20 +1832,14 @@ export default function WorkOrderDetail() {
         field,
         anchorX: 0,
         anchorY: 0,
+        anchorYTop: 0,
         anchorWidth: 120,
       });
     }
   }
 
   function closeFractionPicker() {
-    setFractionPicker({
-      visible: false,
-      rowIndex: -1,
-      field: null,
-      anchorX: 0,
-      anchorY: 0,
-      anchorWidth: 0,
-    });
+    setFractionPicker((prev) => ({ ...prev, visible: false }));
   }
 
   function selectFraction(value: FractionValue) {
@@ -962,7 +1851,7 @@ export default function WorkOrderDetail() {
 
   function openHeaderOptionPicker(rowIndex: number, header: CustomHeader) {
     const normalizedOptions = Array.from(
-      new Set(["", header.label.trim(), ...(header.options ?? [])].map((option) => option.trim()))
+      new Set(["", ...(header.options ?? [])].map((option) => option.trim()))
     ).filter((option, index) => option !== "" || index === 0);
 
     const refKey = `${rowIndex}-${header.id}`;
@@ -977,6 +1866,7 @@ export default function WorkOrderDetail() {
         options: normalizedOptions,
         anchorX: 0,
         anchorY: 0,
+        anchorYTop: 0,
         anchorWidth: 140,
       });
       return;
@@ -992,6 +1882,7 @@ export default function WorkOrderDetail() {
           options: normalizedOptions,
           anchorX: x,
           anchorY: y + height + 4,
+          anchorYTop: y,
           anchorWidth: width,
         });
       });
@@ -1004,27 +1895,42 @@ export default function WorkOrderDetail() {
         options: normalizedOptions,
         anchorX: 0,
         anchorY: 0,
+        anchorYTop: 0,
         anchorWidth: 140,
       });
     }
   }
 
   function closeHeaderOptionPicker() {
-    setHeaderOptionPicker({
-      visible: false,
-      rowIndex: -1,
-      headerId: null,
-      title: "",
-      options: [],
-      anchorX: 0,
-      anchorY: 0,
-      anchorWidth: 0,
-    });
+    setHeaderOptionPicker((prev) => ({ ...prev, visible: false }));
+  }
+
+  function openRowTypePicker(rowIdx: number) {
+    const ref = rowTypeAnchorRefs.current[String(rowIdx)];
+    if (!ref || Platform.OS !== "web") {
+      setRowTypePicker({ visible: true, rowIndex: rowIdx, anchorX: 0, anchorY: 0, anchorYTop: 0, anchorWidth: 0 });
+      return;
+    }
+    try {
+      ref.measureInWindow((x, y, width, height) => {
+        setRowTypePicker({ visible: true, rowIndex: rowIdx, anchorX: x, anchorY: y + height + 4, anchorYTop: y, anchorWidth: width });
+      });
+    } catch {
+      setRowTypePicker({ visible: true, rowIndex: rowIdx, anchorX: 0, anchorY: 0, anchorYTop: 0, anchorWidth: 0 });
+    }
+  }
+
+  function closeRowTypePicker() {
+    setRowTypePicker((prev) => ({ ...prev, visible: false }));
   }
 
   function selectHeaderOption(value: string) {
     if (headerOptionPicker.rowIndex >= 0 && headerOptionPicker.headerId) {
-      setExtraCellByIndex(headerOptionPicker.rowIndex, headerOptionPicker.headerId, value);
+      if (headerOptionPicker.headerId === "color") {
+        setCellByIndex(headerOptionPicker.rowIndex, "color", value);
+      } else {
+        setExtraCellByIndex(headerOptionPicker.rowIndex, headerOptionPicker.headerId, value);
+      }
     }
     closeHeaderOptionPicker();
   }
@@ -1034,7 +1940,7 @@ export default function WorkOrderDetail() {
     setLastCombinedRows(null);
   }
 
-  function duplicateRow(idx: number) {
+  const duplicateRow = useCallback((idx: number) => {
     setRows((prev) => {
       const src = prev[idx];
       const copy: GridRow = {
@@ -1048,15 +1954,15 @@ export default function WorkOrderDetail() {
       return renumberRows([...prev, copy]);
     });
     setLastCombinedRows(null);
-  }
+  }, []);
 
-  function deleteRow(idx: number) {
+  const deleteRow = useCallback((idx: number) => {
     setRows((prev) => {
       const next = prev.filter((_, i) => i !== idx);
       return next.length ? renumberRows(next) : [blankRow(0)];
     });
     setLastCombinedRows(null);
-  }
+  }, []);
 
   async function confirmDeleteWorkOrder() {
     if (!wo || deleting) return;
@@ -1080,10 +1986,167 @@ export default function WorkOrderDetail() {
     }
   }
 
+  async function fetchNextWorkOrderNumber(activeOrgId: string) {
+    const { data, error } = await supabase
+      .from("work_orders")
+      .select("work_order_number")
+      .eq("org_id", activeOrgId)
+      .order("work_order_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return Number((data as any)?.work_order_number ?? 0) + 1;
+  }
+
+  function getCurrentWorkOrderMeta(overrides: Partial<WorkOrderMeta> = {}): WorkOrderMeta {
+    return {
+      notes: woMeta.notes ?? "",
+      installation,
+      labor,
+      material,
+      deposit,
+      tax_rate_override:
+        typeof woMeta.tax_rate_override === "number" ? woMeta.tax_rate_override : undefined,
+      customHeaders,
+      selectedTemplateName,
+      invoiceVisibility: woMeta.invoiceVisibility,
+      gridVisibility: woMeta.gridVisibility,
+      reviewWorkflow: woMeta.reviewWorkflow,
+      pricingLineOptions: woMeta.pricingLineOptions,
+      assignedTo: woMeta.assignedTo,
+      createdBy: woMeta.createdBy,
+      archivedAt: woMeta.archivedAt,
+      archivedBy: woMeta.archivedBy,
+      ...overrides,
+    };
+  }
+
+  async function duplicateWorkOrder() {
+    if (!wo || duplicating) return;
+
+    try {
+      setDuplicating(true);
+      const nextWorkOrderNumber = await fetchNextWorkOrderNumber(wo.org_id);
+      const duplicateMeta = getCurrentWorkOrderMeta({
+        reviewWorkflow: DEFAULT_REVIEW_WORKFLOW,
+        archivedAt: undefined,
+        archivedBy: undefined,
+        createdBy: currentUserId
+          ? {
+              userId: currentUserId,
+              displayName: actorName,
+              role: currentUserRole,
+            }
+          : woMeta.createdBy,
+      });
+
+      const duplicateRes = await supabase
+        .from("work_orders")
+        .insert({
+          org_id: wo.org_id,
+          title: `${wo.title || "Work Order"} Copy`,
+          client_name: wo.client_name ?? null,
+          description: buildWorkOrderDescription(duplicateMeta),
+          status: wo.status || "Open",
+          priority: wo.priority || "normal",
+          scheduled_date: wo.scheduled_date,
+          due_date: wo.due_date,
+          assigned_to_user_id: woMeta.assignedTo?.userId ?? null,
+          created_by_user_id: currentUserId || null,
+          work_order_number: nextWorkOrderNumber,
+        })
+        .select("id")
+        .single();
+
+      if (duplicateRes.error || !duplicateRes.data?.id) {
+        throw new Error(duplicateRes.error?.message ?? "Failed to duplicate work order.");
+      }
+
+      const duplicateId = duplicateRes.data.id;
+      const itemPayload = rows.map((row, index) => ({
+        org_id: wo.org_id,
+        work_order_id: duplicateId,
+        sort_order: index,
+        qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
+        unit: formatMeasurement(row).trim() || null,
+        item: row.color.trim() || null,
+        description: buildRowDescription({
+          rowType: row.row_type,
+          fields: row.extra,
+        }),
+        unit_price: n(row.amount || "0"),
+        taxable: true,
+      }));
+
+      if (itemPayload.length) {
+        const itemRes = await supabase.from("work_order_items").insert(itemPayload);
+        if (itemRes.error) throw new Error(itemRes.error.message);
+      }
+
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: `duplicated work order #${wo.work_order_number ?? wo.id} as #${nextWorkOrderNumber}`,
+        entity_type: "work_order",
+        entity_id: duplicateId,
+      });
+
+      Alert.alert("Duplicated", "A new copy of this work order was created.");
+      router.push(`/workorders/${duplicateId}`);
+    } catch (error: any) {
+      Alert.alert("Duplicate failed", error?.message ?? "Failed to duplicate work order.");
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
+  async function setWorkOrderArchived(nextArchived: boolean) {
+    if (!wo || archiving) return;
+
+    try {
+      setArchiving(true);
+      const nextMeta = getCurrentWorkOrderMeta({
+        archivedAt: nextArchived ? new Date().toISOString() : undefined,
+        archivedBy: nextArchived ? actorName : undefined,
+      });
+
+      const res = await supabase
+        .from("work_orders")
+        .update({
+          description: buildWorkOrderDescription(nextMeta),
+        })
+        .eq("id", wo.id)
+        .eq("org_id", wo.org_id);
+
+      if (res.error) throw new Error(res.error.message);
+
+      setWoMeta(nextMeta);
+
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: `${nextArchived ? "archived" : "restored"} work order #${wo.work_order_number ?? wo.id}`,
+        entity_type: "work_order",
+        entity_id: wo.id,
+      });
+
+      Alert.alert(nextArchived ? "Archived" : "Restored", nextArchived ? "Work order moved to Archived." : "Work order restored to the active list.");
+      if (nextArchived) router.replace("/workorders");
+    } catch (error: any) {
+      Alert.alert("Archive failed", error?.message ?? "Failed to update archive state.");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   function applyTemplate(name: string) {
     const templateHeaders = DEFAULT_TEMPLATE_HEADERS[name];
     if (!templateHeaders) return;
 
+    const previousTemplateName = selectedTemplateName || woMeta.selectedTemplateName || "";
     const nextHeaders = cloneHeaders(templateHeaders);
     setSelectedTemplateName(name);
     setCustomHeaders(nextHeaders);
@@ -1094,6 +2157,26 @@ export default function WorkOrderDetail() {
       customHeaders: nextHeaders,
     }));
     setShowTemplateMenu(false);
+
+    if (wo && previousTemplateName !== name) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "template_changed",
+        entity_type: "work_order",
+        entity_id: wo.id,
+        title: "Changed work order template",
+        description: `changed template on ${workOrderLabel} to ${name}`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          old_value: previousTemplateName || "None",
+          new_value: name,
+        },
+      });
+    }
   }
 
   function combineDuplicateMeasurements() {
@@ -1175,6 +2258,31 @@ export default function WorkOrderDetail() {
     }));
   }
 
+  function setHeaderVisibility(headerId: string, enabled: boolean) {
+    const nextHeaders = customHeaders.map((header) => (header.id === headerId ? { ...header, enabled } : header));
+    setCustomHeaders(nextHeaders);
+    setWoMeta((prev) => ({
+      ...prev,
+      customHeaders: nextHeaders,
+    }));
+  }
+
+  function setPricingLineOption(rowType: RowType, nextOption: Partial<PricingLineOption>) {
+    setWoMeta((prev) => {
+      const current = normalizePricingLineOptions(prev.pricingLineOptions);
+      return {
+        ...prev,
+        pricingLineOptions: {
+          ...(prev.pricingLineOptions ?? {}),
+          [rowType]: {
+            ...current[rowType],
+            ...nextOption,
+          },
+        },
+      };
+    });
+  }
+
   function setReviewWorkflow(next: Partial<ReviewWorkflow>) {
     setWoMeta((prev) => ({
       ...prev,
@@ -1201,6 +2309,26 @@ export default function WorkOrderDetail() {
       completedAt: undefined,
       completedBy: undefined,
     });
+
+    if (wo) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "stage_changed",
+        entity_type: "work_order",
+        entity_id: wo.id,
+        title: "Changed work order stage",
+        description: `submitted ${workOrderLabel} for review`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          old_value: reviewStatusLabel(reviewWorkflow.status),
+          new_value: "Submitted for Review",
+        },
+      });
+    }
   }
 
   function startPricingReview() {
@@ -1217,6 +2345,26 @@ export default function WorkOrderDetail() {
       completedAt: undefined,
       completedBy: undefined,
     });
+
+    if (wo) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "stage_changed",
+        entity_type: "work_order",
+        entity_id: wo.id,
+        title: "Changed work order stage",
+        description: `moved ${workOrderLabel} into pricing review`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          old_value: reviewStatusLabel(reviewWorkflow.status),
+          new_value: "In Review",
+        },
+      });
+    }
   }
 
   function markPricingComplete() {
@@ -1231,6 +2379,26 @@ export default function WorkOrderDetail() {
       completedAt: now,
       completedBy: actorName,
     });
+
+    if (wo) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "stage_changed",
+        entity_type: "work_order",
+        entity_id: wo.id,
+        title: "Completed pricing",
+        description: `completed pricing for ${workOrderLabel}`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          old_value: reviewStatusLabel(reviewWorkflow.status),
+          new_value: "Priced",
+        },
+      });
+    }
   }
 
   function returnToDraft() {
@@ -1248,6 +2416,26 @@ export default function WorkOrderDetail() {
       completedAt: undefined,
       completedBy: undefined,
     });
+
+    if (wo) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "stage_changed",
+        entity_type: "work_order",
+        entity_id: wo.id,
+        title: "Returned work order to draft",
+        description: `returned ${workOrderLabel} to draft`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          old_value: reviewStatusLabel(reviewWorkflow.status),
+          new_value: "Draft",
+        },
+      });
+    }
   }
 
   const viewRows = useMemo(() => {
@@ -1283,17 +2471,28 @@ export default function WorkOrderDetail() {
     return withIdx.map((x) => x.row);
   }, [rows, sortKey, sortDir]);
 
-  const subtotal = useMemo(() => viewRows.reduce((sum, row) => sum + rowLineTotal(row), 0), [viewRows]);
+  const subtotal = useMemo(
+    () => viewRows.reduce((sum, row) => sum + rowLineTotal(row, pricingLineOptions), 0),
+    [viewRows, pricingLineOptions]
+  );
   const tax = useMemo(() => subtotal * (Number(taxRate) / 100), [subtotal, taxRate]);
   const installation = useMemo(() => Number(woMeta.installation ?? 0) || 0, [woMeta.installation]);
-  const total = useMemo(() => subtotal + tax + installation, [subtotal, tax, installation]);
+  const labor = useMemo(() => Number(woMeta.labor ?? 0) || 0, [woMeta.labor]);
+  const material = useMemo(() => Number(woMeta.material ?? 0) || 0, [woMeta.material]);
+  const total = useMemo(
+    () => subtotal + tax + installation + labor + material,
+    [subtotal, tax, installation, labor, material]
+  );
   const deposit = useMemo(() => Number(woMeta.deposit ?? 0) || 0, [woMeta.deposit]);
   const balanceDue = useMemo(() => Math.max(0, total - deposit), [total, deposit]);
 
   async function saveAll() {
     if (!id) return;
+    setSaveError("");
+    setSaveSuccess(false);
+
     if (!canEditFieldRows && !canManageReview) {
-      Alert.alert("Read only", "You do not have permission to edit this work order.");
+      setSaveError("You do not have permission to edit this work order.");
       return;
     }
 
@@ -1304,20 +2503,7 @@ export default function WorkOrderDetail() {
         const workOrderUpdateRes = await supabase
           .from("work_orders")
           .update({
-            description: buildWorkOrderDescription({
-              notes: woMeta.notes ?? "",
-              installation,
-              deposit,
-              tax_rate_override:
-                typeof woMeta.tax_rate_override === "number" ? woMeta.tax_rate_override : undefined,
-              customHeaders,
-              selectedTemplateName,
-              invoiceVisibility: woMeta.invoiceVisibility,
-              gridVisibility: woMeta.gridVisibility,
-              reviewWorkflow: woMeta.reviewWorkflow,
-              assignedTo: woMeta.assignedTo,
-              createdBy: woMeta.createdBy,
-            }),
+            description: buildWorkOrderDescription(getCurrentWorkOrderMeta()),
           })
           .eq("id", wo.id);
 
@@ -1333,15 +2519,62 @@ export default function WorkOrderDetail() {
         }))
       );
 
-      const currentDb = await supabase.from("work_order_items").select("id").eq("work_order_id", id);
+      const currentDb = await supabase
+        .from("work_order_items")
+        .select("id, sort_order, qty, unit, item, description, unit_price")
+        .eq("work_order_id", id);
 
       if (currentDb.error) throw new Error(currentDb.error.message);
 
       const dbIds = (currentDb.data ?? []).map((x: any) => x.id as string);
+      const dbItemKeys = new Map(
+        (currentDb.data ?? []).map((item: any) => [item.id as string, lineItemSnapshotKey(item)])
+      );
+      const dbMeaningfulItemIds = new Set(
+        (currentDb.data ?? [])
+          .filter((item: any) => hasLineItemDetails(item))
+          .map((item: any) => item.id as string)
+      );
       const existingRows = normalizedRows.filter((row) => row.id);
       const newRows = normalizedRows.filter((row) => !row.id);
       const existingIds = existingRows.map((row) => row.id as string);
       const toDelete = dbIds.filter((dbId) => !existingIds.includes(dbId));
+      const meaningfulAddedRows = newRows.filter((row) => hasGridRowDetails(row));
+      const meaningfulDeletedRows = toDelete.filter((dbId) => dbMeaningfulItemIds.has(dbId));
+      const updatePayload = existingRows.map((row) => ({
+        id: row.id,
+        org_id: wo?.org_id,
+        work_order_id: id,
+        sort_order: row.sort_order,
+        qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
+        unit: formatMeasurement(row).trim() || null,
+        item: row.color.trim() || null,
+        description: buildRowDescription({
+          rowType: row.row_type,
+          fields: row.extra,
+        }),
+        unit_price: n(row.amount || "0"),
+        taxable: true,
+      }));
+      const insertPayload = newRows.map((row) => ({
+        org_id: wo?.org_id,
+        work_order_id: id,
+        sort_order: row.sort_order,
+        qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
+        unit: formatMeasurement(row).trim() || null,
+        item: row.color.trim() || null,
+        description: buildRowDescription({
+          rowType: row.row_type,
+          fields: row.extra,
+        }),
+        unit_price: n(row.amount || "0"),
+        taxable: true,
+      }));
+      const changedRowCount = updatePayload.filter((row) => {
+        const existingKey = row.id ? dbItemKeys.get(row.id) : null;
+        const hasDetails = hasLineItemDetails(row) || (row.id ? dbMeaningfulItemIds.has(row.id) : false);
+        return hasDetails && !!existingKey && existingKey !== lineItemSnapshotKey(row);
+      }).length;
 
       if (toDelete.length) {
         const deleteRes = await supabase.from("work_order_items").delete().in("id", toDelete);
@@ -1349,41 +2582,12 @@ export default function WorkOrderDetail() {
       }
 
       if (existingRows.length) {
-        const updatePayload = existingRows.map((row) => ({
-          id: row.id,
-          work_order_id: id,
-          sort_order: normalizedRows.findIndex((r) => r.inventory_number === row.inventory_number),
-          qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
-          unit: formatMeasurement(row).trim() || null,
-          item: row.color.trim() || null,
-          description: buildRowDescription({
-            rowType: row.row_type,
-            fields: row.extra,
-          }),
-          unit_price: n(row.amount || "0"),
-          taxable: true,
-        }));
-
         const updateRes = await supabase.from("work_order_items").upsert(updatePayload, { onConflict: "id" });
 
         if (updateRes.error) throw new Error(updateRes.error.message);
       }
 
       if (newRows.length) {
-        const insertPayload = newRows.map((row) => ({
-          work_order_id: id,
-          sort_order: row.sort_order,
-          qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
-          unit: formatMeasurement(row).trim() || null,
-          item: row.color.trim() || null,
-          description: buildRowDescription({
-            rowType: row.row_type,
-            fields: row.extra,
-          }),
-          unit_price: n(row.amount || "0"),
-          taxable: true,
-        }));
-
         const insertRes = await supabase.from("work_order_items").insert(insertPayload);
         if (insertRes.error) throw new Error(insertRes.error.message);
       }
@@ -1423,9 +2627,60 @@ export default function WorkOrderDetail() {
 
       setRows(refreshed.length ? renumberRows(ensureRowExtras(refreshed, customHeaders)) : [blankRow(0)]);
       setLastCombinedRows(null);
-      Alert.alert("Saved", "Work order updated.");
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+
+      if (wo) {
+        const workOrderLabel = workOrderActivityLabel(wo);
+        const lineItemChanges = [
+          meaningfulAddedRows.length ? countLabel(meaningfulAddedRows.length, "line item") + " added" : "",
+          changedRowCount ? countLabel(changedRowCount, "line item") + " changed" : "",
+          meaningfulDeletedRows.length ? countLabel(meaningfulDeletedRows.length, "line item") + " removed" : "",
+        ].filter(Boolean);
+        const addedTypeCounts = countGridRowsByType(meaningfulAddedRows);
+
+        if (lineItemChanges.length) {
+          const action =
+            meaningfulAddedRows.length && !changedRowCount && !meaningfulDeletedRows.length
+              ? "line_items_bulk_added"
+              : changedRowCount && !meaningfulAddedRows.length && !meaningfulDeletedRows.length
+                ? "line_item_updated"
+                : "line_items_updated";
+
+          void logActivity(supabase, {
+            org_id: wo.org_id,
+            actor_user_id: currentUserId || null,
+            actor_name: actorName,
+            action,
+            entity_type: "work_order_item",
+            entity_id: wo.id,
+            parent_entity_type: "work_order",
+            parent_entity_id: wo.id,
+            title:
+              action === "line_items_bulk_added"
+                ? `Added ${countLabel(meaningfulAddedRows.length, "line item")}`
+                : "Updated work order line items",
+            description:
+              action === "line_items_bulk_added"
+                ? `added ${countLabel(meaningfulAddedRows.length, "line item")} to ${workOrderLabel}`
+                : `updated line items on ${workOrderLabel}: ${lineItemChanges.join(", ")}`,
+            details: {
+              work_order_id: wo.id,
+              work_order_number: workOrderLabel,
+              added_count: meaningfulAddedRows.length,
+              updated_count: changedRowCount,
+              removed_count: meaningfulDeletedRows.length,
+              measured_count: addedTypeCounts.measured,
+              labor_count: addedTypeCounts.labor,
+              material_count: addedTypeCounts.material,
+            },
+          });
+        }
+      }
     } catch (error: any) {
-      Alert.alert("Save failed", error?.message ?? "Failed to save work order.");
+      const msg = error?.message ?? "Failed to save work order.";
+      console.error("[saveAll]", msg, error);
+      setSaveError(msg);
     } finally {
       setSaving(false);
     }
@@ -1433,6 +2688,10 @@ export default function WorkOrderDetail() {
 
   async function convertToInvoice() {
     if (!wo) return;
+    if (linkedInvoice) {
+      router.push(`/invoices/${linkedInvoice.id}`);
+      return;
+    }
     if (!canConvertToInvoice) {
       Alert.alert("Pricing incomplete", "Submit pricing through review and mark it complete before converting.");
       return;
@@ -1441,11 +2700,23 @@ export default function WorkOrderDetail() {
     setConverting(true);
 
     try {
+      const nextInvoiceNumberRes = await supabase
+        .from("invoices")
+        .select("invoice_number")
+        .eq("org_id", wo.org_id)
+        .order("invoice_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (nextInvoiceNumberRes.error) throw new Error(nextInvoiceNumberRes.error.message);
+      const nextInvoiceNumber = Number((nextInvoiceNumberRes.data as any)?.invoice_number ?? 0) + 1;
+
       const invRes = await supabase
         .from("invoices")
         .insert({
           org_id: wo.org_id,
           work_order_id: wo.id,
+          invoice_number: nextInvoiceNumber,
           status: "draft",
           client_name: wo.client_name ?? null,
           bill_to: wo.client_name ?? null,
@@ -1466,6 +2737,7 @@ export default function WorkOrderDetail() {
       const invoiceId = invRes.data.id;
 
       const itemPayload = rows.map((row, i) => ({
+        org_id: wo.org_id,
         invoice_id: invoiceId,
         sort_order: i,
         qty: row.row_type === "measured" ? n(row.qty || "1") : 1,
@@ -1479,17 +2751,255 @@ export default function WorkOrderDetail() {
         taxable: true,
       }));
 
-      if (itemPayload.length) {
-        const copyRes = await supabase.from("invoice_items").insert(itemPayload);
+      const adjustmentPayload = [
+        { label: "Installation", amount: installation },
+        { label: "Labor", amount: labor },
+        { label: "Material", amount: material },
+      ]
+        .filter((item) => item.amount > 0)
+        .map((item, index) => ({
+          org_id: wo.org_id,
+          invoice_id: invoiceId,
+          sort_order: itemPayload.length + index,
+          qty: 1,
+          unit: "Adjustment",
+          item: item.label,
+          description: `${item.label} from work order pricing`,
+          unit_price: item.amount,
+          taxable: false,
+        }));
+
+      if (itemPayload.length || adjustmentPayload.length) {
+        const copyRes = await supabase.from("invoice_items").insert([...itemPayload, ...adjustmentPayload]);
         if (copyRes.error) throw new Error(copyRes.error.message);
       }
 
+      setLinkedInvoice({
+        id: invoiceId,
+        invoice_number: nextInvoiceNumber,
+        status: "draft",
+        total,
+        balance_due: balanceDue,
+      });
+
+      const workOrderLabel = workOrderActivityLabel(wo);
+      const invoiceLabel = formatInvoiceNumber(nextInvoiceNumber);
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "created",
+        entity_type: "invoice",
+        entity_id: invoiceId,
+        parent_entity_type: "work_order",
+        parent_entity_id: wo.id,
+        title: "Created invoice",
+        description: `created ${invoiceLabel} from ${workOrderLabel}`,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          invoice_id: invoiceId,
+          invoice_number: invoiceLabel,
+          client_name: wo.client_name ?? "",
+          line_item_count: itemPayload.length + adjustmentPayload.length,
+          total,
+          balance_due: balanceDue,
+        },
+      });
+
       Alert.alert("Success", "Invoice created successfully.");
+      router.push(`/invoices/${invoiceId}`);
     } catch (error: any) {
       Alert.alert("Convert failed", error?.message ?? "Failed to convert to invoice.");
     } finally {
       setConverting(false);
     }
+  }
+
+  async function openPricingImport() {
+    if (!wo) return;
+    setImportSelectedId("");
+    setImportPreviewRows([]);
+    setImportAdjustments({ installation: 0, labor: 0, material: 0 });
+    setShowPricingImport(true);
+    setImportLoading(true);
+    const res = await supabase
+      .from("pricing_collections")
+      .select("id, name, pricing_mode, industry_type")
+      .eq("org_id", wo.org_id)
+      .order("name");
+    setImportCollections((res.data ?? []) as ImportableCollection[]);
+    setImportLoading(false);
+  }
+
+  async function selectImportCollection(collectionId: string) {
+    setImportSelectedId(collectionId);
+    setImportLoading(true);
+
+    const [rulesRes, matrixRes, fabricsRes] = await Promise.all([
+      supabase.from("pricing_rules")
+        .select("rule_type, label, price, unit_label, formula_expr, sort_order")
+        .eq("collection_id", collectionId).eq("is_active", true).order("sort_order"),
+      supabase.from("pricing_matrix_cells")
+        .select("price_group, width_to, height_to, price")
+        .eq("collection_id", collectionId),
+      supabase.from("pricing_fabrics")
+        .select("fabric_style, price_group")
+        .eq("collection_id", collectionId),
+    ]);
+
+    const rules = (rulesRes.data ?? []) as any[];
+    const cells = (matrixRes.data ?? []) as any[];
+    const fabrics = (fabricsRes.data ?? []) as any[];
+    const preview: ImportPreviewRow[] = [];
+    const adj = { installation: 0, labor: 0, material: 0 };
+
+    // ── Rules pass ──────────────────────────────────────────────────────────
+    for (const rule of rules) {
+      const price = Number(rule.price ?? 0);
+      if (rule.rule_type === "flat")     { adj.installation += price; continue; }
+      if (rule.rule_type === "labor")    { adj.labor += price; continue; }
+      if (rule.rule_type === "material") { adj.material += price; continue; }
+      if (rule.rule_type === "unit") {
+        rows.forEach((row, idx) => {
+          if (row.row_type !== "measured") return;
+          preview.push({
+            rowIndex: idx, inventoryNum: row.inventory_number,
+            currentAmount: row.amount || "0",
+            newAmountRaw: price,
+            newAmountDisplay: `$${price.toFixed(2)}`,
+            source: `Rule: ${rule.label || "Unit rule"}`,
+            selected: true,
+          });
+        });
+      }
+      if (rule.rule_type === "formula" && rule.formula_expr) {
+        rows.forEach((row, idx) => {
+          if (row.row_type !== "measured") return;
+          const w = parseMeasurementDecimal(row.width_whole, row.width_frac);
+          const h = parseMeasurementDecimal(row.length_whole, row.length_frac);
+          const sqft = parseFloat(((w * h) / 144).toFixed(4));
+          const evaluated = (() => {
+            try {
+              const expr = rule.formula_expr
+                .replace(/\{qty\}/g, String(Number(row.qty) || 1))
+                .replace(/\{width\}/g, String(w))
+                .replace(/\{height\}/g, String(h))
+                .replace(/\{sqft\}/g, String(sqft))
+                .replace(/\{linearft\}/g, String(w / 12))
+                .replace(/\{price\}/g, "0")
+                .replace(/[^0-9+\-*/().\s]/g, "");
+              // eslint-disable-next-line no-new-func
+              const result = new Function(`return (${expr})`)();
+              return isNaN(result) || !isFinite(result) ? 0 : Number(result.toFixed(2));
+            } catch { return 0; }
+          })();
+          if (evaluated > 0) {
+            const existing = preview.findIndex(p => p.rowIndex === idx);
+            const entry = {
+              rowIndex: idx, inventoryNum: row.inventory_number,
+              currentAmount: row.amount || "0", newAmountRaw: evaluated,
+              newAmountDisplay: `$${evaluated.toFixed(2)}`,
+              source: `Formula: ${rule.label || rule.formula_expr}`, selected: true,
+            };
+            if (existing >= 0) preview[existing] = entry; else preview.push(entry);
+          }
+        });
+      }
+    }
+
+    // ── Matrix pass (overrides unit rule amounts for matched rows) ──────────
+    if (cells.length > 0) {
+      const allGroups = [...new Set(cells.map((c: any) => c.price_group as string))];
+      rows.forEach((row, idx) => {
+        if (row.row_type !== "measured") return;
+        const w = parseMeasurementDecimal(row.width_whole, row.width_frac);
+        const h = parseMeasurementDecimal(row.length_whole, row.length_frac);
+        if (!w || !h) return;
+
+        const matchedFabric = fabrics.find(
+          (f: any) => f.fabric_style.toLowerCase() === (row.color || "").trim().toLowerCase()
+        );
+        const priceGroup: string = matchedFabric?.price_group ?? allGroups[0] ?? "";
+        if (!priceGroup) return;
+
+        const match = cells
+          .filter((c: any) => c.price_group === priceGroup && c.width_to >= w && c.height_to >= h)
+          .sort((a: any, b: any) => a.width_to - b.width_to || a.height_to - b.height_to)[0];
+
+        if (match) {
+          const price = Number(match.price);
+          const entry = {
+            rowIndex: idx, inventoryNum: row.inventory_number,
+            currentAmount: row.amount || "0", newAmountRaw: price,
+            newAmountDisplay: `$${price.toFixed(2)}`,
+            source: `Matrix: ${priceGroup}  ${w}×${h}`,
+            selected: true,
+          };
+          const existing = preview.findIndex(p => p.rowIndex === idx);
+          if (existing >= 0) preview[existing] = entry; else preview.push(entry);
+        }
+      });
+    }
+
+    setImportPreviewRows(preview);
+    setImportAdjustments(adj);
+    setImportLoading(false);
+  }
+
+  function applyPricingImport() {
+    const selectedRows = importPreviewRows.filter((item) => item.selected);
+    const nextRows = rows.map((row, idx) => {
+      const item = importPreviewRows.find(p => p.rowIndex === idx && p.selected);
+      if (!item) return row;
+      return { ...row, amount: formatCurrencyDisplay(String(item.newAmountRaw)) };
+    });
+    setRows(nextRows);
+
+    if (importAdjustments.installation || importAdjustments.labor || importAdjustments.material) {
+      setWoMeta(prev => ({
+        ...prev,
+        installation: (prev.installation ?? 0) + importAdjustments.installation,
+        labor:        (prev.labor ?? 0)        + importAdjustments.labor,
+        material:     (prev.material ?? 0)     + importAdjustments.material,
+      }));
+    }
+
+    if (wo && (selectedRows.length || importAdjustments.installation || importAdjustments.labor || importAdjustments.material)) {
+      const workOrderLabel = workOrderActivityLabel(wo);
+      const sourceCollection = importCollections.find((collection) => collection.id === importSelectedId);
+      const adjustmentTotal = importAdjustments.installation + importAdjustments.labor + importAdjustments.material;
+      const importDescription = selectedRows.length
+        ? `imported ${countLabel(selectedRows.length, "pricing row")} into ${workOrderLabel}`
+        : `imported pricing add-ons into ${workOrderLabel}`;
+      void logActivity(supabase, {
+        org_id: wo.org_id,
+        actor_user_id: currentUserId || null,
+        actor_name: actorName,
+        action: "pricing_imported",
+        entity_type: "pricing",
+        entity_id: wo.id,
+        parent_entity_type: "work_order",
+        parent_entity_id: wo.id,
+        title: "Imported pricing",
+        description: importDescription,
+        details: {
+          work_order_id: wo.id,
+          work_order_number: workOrderLabel,
+          count: selectedRows.length,
+          source_collection_id: importSelectedId,
+          source_collection_name: sourceCollection?.name ?? "",
+          installation: importAdjustments.installation,
+          labor: importAdjustments.labor,
+          material: importAdjustments.material,
+          adjustment_total: adjustmentTotal,
+        },
+      });
+    }
+
+    setShowPricingImport(false);
+    setImportSelectedId("");
+    setImportPreviewRows([]);
   }
 
   function buildPdfHtml() {
@@ -1498,7 +3008,7 @@ export default function WorkOrderDetail() {
     const bizWeb = orgSettings?.website || profile?.website || "";
     const brandPrimary = orgSettings?.brand_primary_color || "#111111";
     const brandSecondary = orgSettings?.brand_secondary_color || "#FFFCF6";
-    const brandAccent = orgSettings?.brand_accent_color || "#D4AF37";
+    const brandAccent = orgSettings?.brand_accent_color || "#2563EB";
 
     const addr = [
       orgSettings?.address1 || profile?.address1,
@@ -1511,7 +3021,7 @@ export default function WorkOrderDetail() {
       .join("<br/>");
 
     const title = wo?.title ?? "Work Order";
-    const client = wo?.client_name ?? "—";
+    const client = wo?.client_name ?? "-";
     const workOrderLabel = formatWorkOrderNumber(wo?.work_order_number);
 
     const visibleColumns = [
@@ -1545,13 +3055,14 @@ export default function WorkOrderDetail() {
 
     const rowsHtml = rows
       .map((row) => {
-        const line = rowLineTotal(row);
-        const measurementText = row.row_type === "measured" ? formatMeasurement(row) : "—";
-        const qtyText = row.row_type === "measured" ? row.qty || "1" : "—";
+        const lineOption = pricingLineOptions[row.row_type] ?? DEFAULT_PRICING_LINE_OPTIONS[row.row_type];
+        const line = rowLineTotal(row, pricingLineOptions);
+        const measurementText = lineOption.showMeasurement ? formatMeasurement(row) : "-";
+        const qtyText = lineOption.showQuantity ? row.qty || "1" : "-";
 
         const cells: Record<string, string> = {
           inventory_number: `<td style="text-align:center;">${escapeHtml(String(row.inventory_number))}</td>`,
-          row_type: `<td>${escapeHtml(rowTypeLabel(row.row_type))}</td>`,
+          row_type: `<td>${escapeHtml(rowTypeLabel(row.row_type, pricingLineOptions))}</td>`,
           qty: `<td style="text-align:center;">${escapeHtml(qtyText)}</td>`,
           measurement: `<td>${escapeHtml(measurementText)}</td>`,
           color: `<td>${escapeHtml(row.color)}</td>`,
@@ -1627,6 +3138,8 @@ export default function WorkOrderDetail() {
       <tr><td class="lbl">Sub Total</td><td class="val">${money(subtotal)}</td></tr>
       <tr><td class="lbl">Tax (${Number(taxRate).toFixed(2)}%)</td><td class="val">${money(tax)}</td></tr>
       ${invoiceVisibility.showInstallation ? `<tr><td class="lbl">Installation</td><td class="val">${money(installation)}</td></tr>` : ""}
+      ${invoiceVisibility.showLabor ? `<tr><td class="lbl">Labor</td><td class="val">${money(labor)}</td></tr>` : ""}
+      ${invoiceVisibility.showMaterial ? `<tr><td class="lbl">Material</td><td class="val">${money(material)}</td></tr>` : ""}
       <tr><td class="lbl" style="font-weight:900;">Total</td><td class="val" style="font-weight:900;">${money(total)}</td></tr>
       ${invoiceVisibility.showDeposit ? `<tr><td class="lbl">Deposit</td><td class="val">${money(deposit)}</td></tr>` : ""}
       <tr><td class="lbl" style="font-weight:900;">Balance Due</td><td class="val" style="font-weight:900;">${money(balanceDue)}</td></tr>
@@ -1661,7 +3174,7 @@ export default function WorkOrderDetail() {
       "Inventory #",
       "Type",
       ...(gridVisibility.showQty ? ["Qty"] : []),
-      "Measurement",
+      ...(gridVisibility.showMeasurement ? ["Measurement"] : []),
       "Item / SKU",
       ...visibleCustomHeaders.map((header) => header.label),
       ...(effectiveShowAmount ? ["Amount"] : []),
@@ -1670,15 +3183,15 @@ export default function WorkOrderDetail() {
     ];
 
     const lines = viewRows.map((row) => {
-      const lineTotal = rowLineTotal(row);
+      const lineTotal = rowLineTotal(row, pricingLineOptions);
       return [
         formatWorkOrderNumber(wo?.work_order_number),
         wo?.title ?? "",
         wo?.client_name ?? "",
         row.inventory_number,
-        rowTypeLabel(row.row_type),
+        rowTypeLabel(row.row_type, pricingLineOptions),
         ...(gridVisibility.showQty ? [row.row_type === "measured" ? row.qty || "1" : ""] : []),
-        row.row_type === "measured" ? formatMeasurement(row) : "",
+        ...(gridVisibility.showMeasurement ? [row.row_type === "measured" ? formatMeasurement(row) : ""] : []),
         row.color,
         ...visibleCustomHeaders.map((header) => row.extra?.[header.id] ?? ""),
         ...(effectiveShowAmount ? [row.amount] : []),
@@ -1751,7 +3264,7 @@ export default function WorkOrderDetail() {
 
   const headerSortBadge = (k: typeof sortKey) => {
     if (sortKey !== k) return null;
-    return <Text style={styles.sortBadge}>{sortDir === "asc" ? "↑" : "↓"}</Text>;
+    return <Text style={styles.sortBadge}>{sortDir === "asc" ? "ASC" : "DESC"}</Text>;
   };
 
   const FractionSelect = ({
@@ -1771,7 +3284,7 @@ export default function WorkOrderDetail() {
     >
       <Pressable onPress={onPress} style={styles.fractionDropdownField}>
         <Text style={styles.fractionDropdownText}>{value || ""}</Text>
-        <Ionicons name="chevron-down" size={14} color={PALETTE.inkSoft} />
+        <Ionicons name="chevron-down" size={14} color={theme.colors.ink} />
       </Pressable>
     </View>
   );
@@ -1786,7 +3299,7 @@ export default function WorkOrderDetail() {
     onPress: () => void;
   }) => (
     <Pressable onPress={onPress} style={[styles.visibilityChip, value ? styles.visibilityChipOn : null]}>
-      <Ionicons name={value ? "checkbox" : "square-outline"} size={14} color={value ? "#111" : PALETTE.ink} />
+      <Ionicons name={value ? "checkbox" : "square-outline"} size={14} color={value ? "#111" : theme.colors.ink} />
       <Text style={[styles.visibilityChipText, value ? styles.visibilityChipTextOn : null]}>{label}</Text>
     </Pressable>
   );
@@ -1805,36 +3318,108 @@ export default function WorkOrderDetail() {
     </Pressable>
   );
 
-  const fractionMenuLeft = fractionPicker.anchorX ? Math.max(12, fractionPicker.anchorX) : undefined;
-  const fractionMenuTop = fractionPicker.anchorY ? Math.max(80, fractionPicker.anchorY) : undefined;
-  const headerOptionMenuLeft = headerOptionPicker.anchorX ? Math.max(12, headerOptionPicker.anchorX) : undefined;
-  const headerOptionMenuTop = headerOptionPicker.anchorY ? Math.max(80, headerOptionPicker.anchorY) : undefined;
+  const fractionMenuStyle = dropdownAnchorStyle(
+    fractionPicker.anchorX,
+    fractionPicker.anchorY,
+    fractionPicker.anchorYTop,
+    fractionPicker.anchorWidth,
+    viewportWidth,
+    viewportHeight,
+    120,
+    FRACTION_DROPDOWN_MAX_HEIGHT
+  );
+  const headerOptionMenuStyle = dropdownAnchorStyle(
+    headerOptionPicker.anchorX,
+    headerOptionPicker.anchorY,
+    headerOptionPicker.anchorYTop,
+    headerOptionPicker.anchorWidth,
+    viewportWidth,
+    viewportHeight,
+    150,
+    HEADER_OPTION_DROPDOWN_MAX_HEIGHT
+  );
+  const rowTypeMenuStyle = dropdownAnchorStyle(
+    rowTypePicker.anchorX,
+    rowTypePicker.anchorY,
+    rowTypePicker.anchorYTop,
+    rowTypePicker.anchorWidth,
+    viewportWidth,
+    viewportHeight,
+    160,
+    HEADER_OPTION_DROPDOWN_MAX_HEIGHT
+  );
+  const headerOptionValues = orderedHeaderOptions(headerOptionPicker.options);
+  const headerOptionCurrentValue =
+    headerOptionPicker.rowIndex >= 0 && headerOptionPicker.headerId
+      ? getGridHeaderValue(rows[headerOptionPicker.rowIndex], headerOptionPicker.headerId)
+      : "";
+  const headerOptionIsAlignment = isAlignmentOptionMenu(headerOptionValues);
+  const headerOptionGroupLabel = headerOptionIsAlignment ? "Alignment" : "Options";
 
   return (
     <Screen padded={false}>
       <View style={styles.page}>
         <View style={styles.topRow}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={18} color={PALETTE.ink} />
+            <Ionicons name="arrow-back" size={18} color={theme.colors.ink} />
             <Text style={styles.backText}>Work Orders</Text>
           </Pressable>
 
           <View style={styles.topActions}>
             {canManageReview ? (
               <Pressable onPress={() => setShowExportMenu(true)} style={styles.secondaryBtn}>
-                <Ionicons name="document-text-outline" size={16} color={PALETTE.ink} />
+                <Ionicons name="document-text-outline" size={16} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Export</Text>
               </Pressable>
             ) : null}
 
             {canManageReview ? (
               <Pressable
-                onPress={convertToInvoice}
-                style={[styles.secondaryBtn, (!canConvertToInvoice || converting) ? styles.disabledBtn : null]}
-                disabled={converting || !canConvertToInvoice}
+                onPress={duplicateWorkOrder}
+                disabled={duplicating}
+                style={[styles.secondaryBtn, duplicating ? styles.disabledBtn : null]}
               >
-                <Ionicons name="swap-horizontal-outline" size={16} color={PALETTE.ink} />
-                <Text style={styles.secondaryText}>{converting ? "Converting..." : "Convert to Invoice"}</Text>
+                <Ionicons name="copy-outline" size={16} color={theme.colors.ink} />
+                <Text style={styles.secondaryText}>{duplicating ? "Duplicating..." : "Duplicate"}</Text>
+              </Pressable>
+            ) : null}
+
+            {canManageReview && !linkedInvoice && canConvertToInvoice ? (
+              <Pressable
+                onPress={() => setShowInvoicePreview(true)}
+                style={styles.secondaryBtn}
+              >
+                <Ionicons name="eye-outline" size={16} color={theme.colors.ink} />
+                <Text style={styles.secondaryText}>Preview Invoice</Text>
+              </Pressable>
+            ) : null}
+
+            {canManageReview ? (
+              <Pressable
+                onPress={convertToInvoice}
+                style={[
+                  styles.secondaryBtn,
+                  (!linkedInvoice && (!canConvertToInvoice || converting)) ? styles.disabledBtn : null,
+                ]}
+                disabled={converting || (!linkedInvoice && !canConvertToInvoice)}
+              >
+                <Ionicons name="swap-horizontal-outline" size={16} color={theme.colors.ink} />
+                <Text style={styles.secondaryText}>
+                  {linkedInvoice ? "Open Invoice" : converting ? "Converting..." : "Convert to Invoice"}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {canDeleteWorkOrder ? (
+              <Pressable
+                onPress={() => void setWorkOrderArchived(!isArchived)}
+                disabled={archiving}
+                style={[styles.secondaryBtn, archiving ? styles.disabledBtn : null]}
+              >
+                <Ionicons name={isArchived ? "arrow-up-circle-outline" : "archive-outline"} size={16} color={theme.colors.ink} />
+                <Text style={styles.secondaryText}>
+                  {archiving ? "Updating..." : isArchived ? "Restore" : "Archive"}
+                </Text>
               </Pressable>
             ) : null}
 
@@ -1860,18 +3445,35 @@ export default function WorkOrderDetail() {
           </View>
         </View>
 
+        {saveError ? (
+          <View style={styles.saveBannerError}>
+            <Ionicons name="alert-circle-outline" size={16} color="#B42318" />
+            <Text style={styles.saveBannerErrorText}>{saveError}</Text>
+            <Pressable onPress={() => setSaveError("")} style={{ padding: 4 }}>
+              <Ionicons name="close" size={15} color="#B42318" />
+            </Pressable>
+          </View>
+        ) : null}
+
+        {saveSuccess ? (
+          <View style={styles.saveBannerSuccess}>
+            <Ionicons name="checkmark-circle-outline" size={16} color="#166534" />
+            <Text style={styles.saveBannerSuccessText}>Work order saved.</Text>
+          </View>
+        ) : null}
+
         <View style={styles.headerCard}>
           <View style={styles.workOrderHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.h1}>
-                {formatWorkOrderNumber(wo?.work_order_number) !== "—"
-                  ? `${formatWorkOrderNumber(wo?.work_order_number)} • `
+                {formatWorkOrderNumber(wo?.work_order_number) !== "-"
+                  ? `${formatWorkOrderNumber(wo?.work_order_number)} - `
                   : ""}
                 {wo?.title ?? "Work Order"}
               </Text>
               <Text style={styles.sub}>
-                {wo?.client_name ? `Client: ${wo.client_name}` : "Client: —"} • Template:{" "}
-                {woMeta.selectedTemplateName || "General"} • Assigned: {assignedToLabel}
+                {wo?.client_name ? `Client: ${wo.client_name}` : "Client: -"} - Template:{" "}
+                {woMeta.selectedTemplateName || "General"} - Assigned: {assignedToLabel}
               </Text>
             </View>
           </View>
@@ -1883,71 +3485,33 @@ export default function WorkOrderDetail() {
                 value={woMeta.notes ?? ""}
                 onChangeText={(v) => setWoMeta((p) => ({ ...p, notes: v }))}
                 placeholder="Add job notes, special instructions..."
-                placeholderTextColor={PALETTE.muted}
+                placeholderTextColor={theme.colors.muted}
                 style={styles.metaInput}
                 multiline
               />
             </View>
 
-            {canViewFinancials ? (
-              <View style={styles.metaColSmall}>
-                <Text style={styles.metaLabel}>Tax %</Text>
-                <TextInput
-                  value={formatPercentDisplay(
-                    String(typeof woMeta.tax_rate_override === "number" ? woMeta.tax_rate_override : taxRate)
-                  )}
-                  onChangeText={(v) => {
-                    const x = formatPercentDisplay(v);
-                    setWoMeta((p) => ({ ...p, tax_rate_override: x.trim() ? Number(x) : undefined }));
-                  }}
-                  placeholder="0"
-                  placeholderTextColor={PALETTE.muted}
-                  style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
-                  keyboardType="numeric"
-                  editable={canEditFinancials}
-                />
-
-                <Text style={[styles.metaLabel, { marginTop: 10 }]}>Installation</Text>
-                <TextInput
-                  value={formatCurrencyDisplay(String(woMeta.installation ?? 0))}
-                  onChangeText={(v) =>
-                    setWoMeta((p) => ({ ...p, installation: Number(cleanDecimalInput(v) || "0") }))
-                  }
-                  placeholder="0.00"
-                  placeholderTextColor={PALETTE.muted}
-                  style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
-                  keyboardType="numeric"
-                  editable={canEditFinancials}
-                />
-
-                <Text style={[styles.metaLabel, { marginTop: 10 }]}>Deposit</Text>
-                <TextInput
-                  value={formatCurrencyDisplay(String(woMeta.deposit ?? 0))}
-                  onChangeText={(v) =>
-                    setWoMeta((p) => ({ ...p, deposit: Number(cleanDecimalInput(v) || "0") }))
-                  }
-                  placeholder="0.00"
-                  placeholderTextColor={PALETTE.muted}
-                  style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
-                  keyboardType="numeric"
-                  editable={canEditFinancials}
-                />
-              </View>
-            ) : (
-              <View style={styles.metaColSmall}>
-                <Text style={styles.metaLabel}>Workflow</Text>
-                <View style={styles.infoChip}>
-                  <Ionicons name="construct-outline" size={14} color={PALETTE.goldDark} />
-                  <Text style={styles.infoChipText}>
-                    {assignedToMe
-                      ? reviewWorkflow.status === "submitted_for_review"
+            <View style={styles.metaColSmall}>
+              <Text style={styles.metaLabel}>Workflow status</Text>
+              <View style={styles.infoChip}>
+                <Ionicons name="construct-outline" size={14} color={theme.colors.goldDark} />
+              <Text style={styles.infoChipText}>
+                  {linkedInvoice
+                    ? `Linked to ${formatInvoiceNumber(linkedInvoice.invoice_number)}`
+                    : reviewWorkflow.status === "priced"
+                    ? "Pricing complete - ready for invoice"
+                    : reviewWorkflow.status === "in_review"
+                      ? "Pricing in review"
+                      : reviewWorkflow.status === "submitted_for_review"
                         ? "Submitted for manager review"
-                        : "Complete the template, then submit for review"
-                      : "Field-only access"}
-                  </Text>
-                </View>
+                        : assignedToMe
+                          ? "Complete grid, then submit for review"
+                          : canViewFinancials
+                            ? "In draft - pricing panel below"
+                            : "Field-only access"}
+                </Text>
               </View>
-            )}
+            </View>
           </View>
         </View>
 
@@ -1989,17 +3553,46 @@ export default function WorkOrderDetail() {
             </View>
           </View>
 
+          {linkedInvoice ? (
+            <View style={styles.linkedInvoiceCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.linkedInvoiceLabel}>Linked invoice</Text>
+                <Text style={styles.linkedInvoiceTitle}>
+                  {formatInvoiceNumber(linkedInvoice.invoice_number)}
+                </Text>
+                <Text style={styles.linkedInvoiceMeta}>
+                  Status: {linkedInvoice.status ?? "draft"} - Total: {money(Number(linkedInvoice.total ?? 0))} - Balance:{" "}
+                  {money(Number(linkedInvoice.balance_due ?? 0))}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => router.push(`/invoices/${linkedInvoice.id}`)}
+                style={styles.secondaryBtnSmall}
+              >
+                <Ionicons name="open-outline" size={15} color={theme.colors.ink} />
+                <Text style={styles.secondaryText}>Open Invoice</Text>
+              </Pressable>
+            </View>
+          ) : reviewWorkflow.status === "priced" ? (
+            <View style={styles.invoiceReadyCard}>
+              <Ionicons name="receipt-outline" size={16} color={theme.colors.goldDark} />
+              <Text style={styles.invoiceReadyText}>
+                Pricing is complete. Convert once to create and link the invoice.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.reviewActions}>
             {(assignedToMe || canManageReview) && reviewWorkflow.status === "draft" ? (
               <Pressable onPress={submitForReview} style={styles.secondaryBtnSmall}>
-                <Ionicons name="send-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="send-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Submit for Review</Text>
               </Pressable>
             ) : null}
 
             {canManageReview && reviewWorkflow.status === "submitted_for_review" ? (
               <Pressable onPress={startPricingReview} style={styles.secondaryBtnSmall}>
-                <Ionicons name="create-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="create-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Start Review</Text>
               </Pressable>
             ) : null}
@@ -2007,14 +3600,14 @@ export default function WorkOrderDetail() {
             {canManageReview &&
             (reviewWorkflow.status === "in_review" || reviewWorkflow.status === "submitted_for_review") ? (
               <Pressable onPress={markPricingComplete} style={styles.secondaryBtnSmall}>
-                <Ionicons name="checkmark-done-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="checkmark-done-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Mark Complete</Text>
               </Pressable>
             ) : null}
 
             {canManageReview ? (
               <Pressable onPress={returnToDraft} style={styles.secondaryBtnSmall}>
-                <Ionicons name="refresh-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="refresh-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Return to Draft</Text>
               </Pressable>
             ) : null}
@@ -2027,7 +3620,7 @@ export default function WorkOrderDetail() {
                 value={reviewWorkflow.note ?? ""}
                 onChangeText={(v) => setReviewWorkflow({ note: v })}
                 placeholder="Add pricing note, review instructions, approval notes..."
-                placeholderTextColor={PALETTE.muted}
+                placeholderTextColor={theme.colors.muted}
                 style={styles.reviewNoteInput}
                 multiline
               />
@@ -2038,20 +3631,20 @@ export default function WorkOrderDetail() {
             <Text style={styles.reviewMetaText}>
               Submitted:{" "}
               {reviewWorkflow.submittedAt
-                ? `${new Date(reviewWorkflow.submittedAt).toLocaleString()} • ${reviewWorkflow.submittedBy ?? "—"}`
-                : "—"}
+                ? `${new Date(reviewWorkflow.submittedAt).toLocaleString()} - ${reviewWorkflow.submittedBy ?? "-"}`
+                : "-"}
             </Text>
             <Text style={styles.reviewMetaText}>
               In Review:{" "}
               {reviewWorkflow.reviewStartedAt
-                ? `${new Date(reviewWorkflow.reviewStartedAt).toLocaleString()} • ${reviewWorkflow.reviewStartedBy ?? "—"}`
-                : "—"}
+                ? `${new Date(reviewWorkflow.reviewStartedAt).toLocaleString()} - ${reviewWorkflow.reviewStartedBy ?? "-"}`
+                : "-"}
             </Text>
             <Text style={styles.reviewMetaText}>
               Completed:{" "}
               {reviewWorkflow.completedAt
-                ? `${new Date(reviewWorkflow.completedAt).toLocaleString()} • ${reviewWorkflow.completedBy ?? "—"}`
-                : "—"}
+                ? `${new Date(reviewWorkflow.completedAt).toLocaleString()} - ${reviewWorkflow.completedBy ?? "-"}`
+                : "-"}
             </Text>
           </View>
         </View>
@@ -2061,49 +3654,22 @@ export default function WorkOrderDetail() {
             <View style={styles.gridToolbarLeft}>
               <Text style={styles.sectionTitle}>Grid</Text>
               <Text style={styles.sectionSub}>
-                Measured lines, labor, materials, templates, dynamic headers, review-ready pricing
+                Measured lines, templates, dynamic headers, and review-ready pricing
               </Text>
             </View>
 
             <View style={styles.gridToolbarRight}>
-              <View style={styles.templateDropdownWrap}>
-                <Text style={styles.inlineLabel}>Header template</Text>
-                <Pressable onPress={() => setShowTemplateMenu(true)} style={styles.templateDropdownField}>
-                  <Text style={styles.templateDropdownFieldText}>{selectedTemplateName}</Text>
-                  <Ionicons name="chevron-down" size={15} color={PALETTE.inkSoft} />
-                </Pressable>
-              </View>
-
               <Pressable
-                onPress={() => setGridVisibility("showQty", !gridVisibility.showQty)}
-                style={styles.secondaryBtnSmall}
+                onPress={() => addRow("measured")}
+                disabled={!canEditFieldRows}
+                style={[styles.addRowBtn, !canEditFieldRows ? styles.disabledBtn : null]}
               >
-                <Ionicons
-                  name={gridVisibility.showQty ? "eye-off-outline" : "eye-outline"}
-                  size={15}
-                  color={PALETTE.ink}
-                />
-                <Text style={styles.secondaryText}>{gridVisibility.showQty ? "Hide Qty" : "Show Qty"}</Text>
+                <Ionicons name="add" size={16} color="#fff" />
+                <Text style={styles.addRowText}>Add Row</Text>
               </Pressable>
 
-              {canViewFinancials ? (
-                <Pressable
-                  onPress={() => setGridVisibility("showAmount", !gridVisibility.showAmount)}
-                  style={styles.secondaryBtnSmall}
-                >
-                  <Ionicons
-                    name={gridVisibility.showAmount ? "eye-off-outline" : "eye-outline"}
-                    size={15}
-                    color={PALETTE.ink}
-                  />
-                  <Text style={styles.secondaryText}>
-                    {gridVisibility.showAmount ? "Hide Amount" : "Show Amount"}
-                  </Text>
-                </Pressable>
-              ) : null}
-
               <Pressable onPress={combineDuplicateMeasurements} style={styles.secondaryBtnSmall}>
-                <Ionicons name="git-merge-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="git-merge-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Combine</Text>
               </Pressable>
 
@@ -2112,271 +3678,426 @@ export default function WorkOrderDetail() {
                 style={[styles.secondaryBtnSmall, !lastCombinedRows?.length ? styles.disabledBtn : null]}
                 disabled={!lastCombinedRows?.length}
               >
-                <Ionicons name="return-up-back-outline" size={15} color={PALETTE.ink} />
+                <Ionicons name="return-up-back-outline" size={15} color={theme.colors.ink} />
                 <Text style={styles.secondaryText}>Uncombine</Text>
               </Pressable>
 
-              <Pressable onPress={() => (canEditFieldRows ? addRow("measured") : null)} style={styles.addRowBtn}>
-                <Ionicons name="add" size={16} color="#111" />
-                <Text style={styles.addRowText}>Measured</Text>
-              </Pressable>
-
-              <Pressable onPress={() => (canEditFieldRows ? addRow("labor") : null)} style={styles.secondaryBtnSmall}>
-                <Ionicons name="hammer-outline" size={15} color={PALETTE.ink} />
-                <Text style={styles.secondaryText}>Labor</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => (canEditFieldRows ? addRow("material") : null)}
-                style={styles.secondaryBtnSmall}
-              >
-                <Ionicons name="cube-outline" size={15} color={PALETTE.ink} />
-                <Text style={styles.secondaryText}>Material</Text>
-              </Pressable>
             </View>
           </View>
 
-          <View style={styles.tableWrap}>
-            <View style={styles.thead}>
-              {renderStaticHeader("inventory_number", "INV #", 0.72, "center")}
-              {renderStaticHeader("row_type", "TYPE", 1.05)}
-              {gridVisibility.showQty ? renderStaticHeader("qty", "QTY", 0.65, "center") : null}
-              {renderStaticHeader("measurement", "MEASUREMENT", 2.9)}
-              {renderStaticHeader("color", "ITEM / SKU", 2.05)}
-
-              {visibleCustomHeaders.map((header) => (
-                <Pressable key={header.id} onPress={() => toggleSort(header.id)} style={[styles.thPress, { flex: 0.95 }]}>
-                  <Text style={styles.thText} numberOfLines={1}>
+          <View style={styles.headerVisibilityPanel}>
+            <Text style={styles.headerVisibilityTitle}>Header visibility</Text>
+            <View style={styles.headerVisibilityChips}>
+              {customHeaders.map((header) => (
+                <Pressable
+                  key={header.id}
+                  onPress={() => setHeaderVisibility(header.id, !header.enabled)}
+                  style={[styles.headerVisibilityChip, header.enabled ? styles.headerVisibilityChipActive : null]}
+                >
+                  <Text style={[styles.headerVisibilityChipText, header.enabled ? styles.headerVisibilityChipTextActive : null]}>
                     {header.label}
                   </Text>
-                  {headerSortBadge(header.id)}
                 </Pressable>
               ))}
+            </View>
+          </View>
 
-              {effectiveShowAmount ? renderStaticHeader("amount", "AMOUNT", 0.95, "flex-end") : null}
+          {/* Horizontal scroll for wide table; the page handles vertical scroll. */}
+          <ScrollView horizontal showsHorizontalScrollIndicator style={styles.tableHScroll}>
+            <View>
+              {/* Header */}
+              <View style={styles.thead}>
+                <Pressable onPress={() => toggleSort("inventory_number")} style={[styles.thCell, { width: COLS.inv, justifyContent: "center" }]}>
+                  <Text style={styles.thText}>INV #</Text>
+                  {headerSortBadge("inventory_number")}
+                </Pressable>
+                <Pressable onPress={() => toggleSort("row_type")} style={[styles.thCell, { width: COLS.type }]}>
+                  <Text style={styles.thText}>TYPE</Text>
+                  {headerSortBadge("row_type")}
+                </Pressable>
+                <Pressable onPress={() => toggleSort("qty")} style={[styles.thCell, { width: COLS.qty, justifyContent: "center" }]}>
+                  <Text style={styles.thText}>QTY</Text>
+                  {headerSortBadge("qty")}
+                </Pressable>
+                {visibleGridHeaders.map((header) => (
+                  <Pressable key={header.id} onPress={() => toggleSort(header.id)} style={[styles.thCell, { width: gridColumnWidth(header) }]}>
+                    <Text style={styles.thText} numberOfLines={1}>{header.label}</Text>
+                    {headerSortBadge(header.id)}
+                  </Pressable>
+                ))}
+                {effectiveShowAmount ? (
+                  <Pressable onPress={() => toggleSort("amount")} style={[styles.thCell, { width: COLS.amount, justifyContent: "flex-end" }]}>
+                    <Text style={styles.thText}>AMOUNT</Text>
+                    {headerSortBadge("amount")}
+                  </Pressable>
+                ) : null}
+                <View style={[styles.thCell, { width: COLS.actions, justifyContent: "flex-end", borderRightWidth: 0 }]}>
+                  <Text style={styles.thText}>ACTIONS</Text>
+                </View>
+              </View>
 
-              <View style={[styles.thPress, { width: 88, alignItems: "flex-end" }]}>
-                <Text style={styles.thText} numberOfLines={1}>
-                  ACTIONS
+              {/* Rows */}
+              {viewRows.map((row, idx) => (
+                <MemoGridRow
+                  key={row.id ?? `row-${row.inventory_number}`}
+                  row={row}
+                  idx={idx}
+                  isStriped={idx % 2 === 0}
+                  pricingLineOptions={pricingLineOptions}
+                  visibleCustomHeaders={visibleGridHeaders}
+                  showQty
+                  effectiveShowAmount={effectiveShowAmount}
+                  canEditFieldRows={canEditFieldRows}
+                  canEditFinancials={canEditFinancials}
+                  onSetCell={setCellByIndex}
+                  onSetExtra={setExtraCellByIndex}
+                  onOpenFractionPicker={openFractionPicker}
+                  onOpenHeaderOptionPicker={openHeaderOptionPicker}
+                  onOpenRowTypePicker={openRowTypePicker}
+                  onDuplicate={duplicateRow}
+                  onDelete={deleteRow}
+                  fractionAnchorRefs={fractionAnchorRefs}
+                  headerOptionAnchorRefs={headerOptionAnchorRefs}
+                  rowTypeAnchorRefs={rowTypeAnchorRefs}
+                />
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+
+        {canViewPricing ? (
+          <View style={styles.pricingPanel}>
+            {/* Header */}
+            <View style={styles.pricingPanelHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Pricing</Text>
+                <Text style={styles.sectionSub}>
+                  Tax, adjustments, totals, invoice controls, and imported pricing
                 </Text>
               </View>
+              {!canViewPricingTotals ? (
+                <View style={[styles.reviewStatusPill, styles.reviewStatusPillGold]}>
+                  <Text style={[styles.reviewStatusText, styles.reviewStatusTextGold]}>Draft Setup</Text>
+                </View>
+              ) : null}
             </View>
 
-            <ScrollView style={styles.rowsScroll}>
-              {viewRows.map((row, idx) => {
-                const line = rowLineTotal(row);
-                const isStriped = idx % 2 === 0;
+            {/* Import Pricing Grid button */}
+            {canEditFinancials ? (
+              <Pressable onPress={() => void openPricingImport()} style={styles.importPricingBtn}>
+                <Ionicons name="pricetag-outline" size={14} color={theme.colors.goldDark} />
+                <Text style={styles.importPricingBtnText}>Import Pricing Grid</Text>
+              </Pressable>
+            ) : null}
 
-                return (
-                  <Pressable
-                    key={row.id ?? `new-${idx}`}
-                    style={({ pressed }) => [styles.tr, isStriped ? styles.trStriped : null, pressed ? styles.trPressed : null]}
-                  >
-                    <View style={styles.inventoryCell}>
-                      <Text style={styles.inventoryText}>{row.inventory_number}</Text>
-                    </View>
+            {/* Line item options are managed by the work order grid builder. */}
+            {false ? (
+            <View style={styles.pricingOptionsPanel}>
+              <View style={styles.pricingOptionsHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pricingOptionsTitle}>Line item options</Text>
+                  <Text style={styles.pricingOptionsSub}>
+                    Configure measured grid rows here. Labor and material are priced below as separate adjustments.
+                  </Text>
+                </View>
+                <Text style={styles.pricingOptionsMeta}>Grid rows</Text>
+              </View>
 
-                    <Pressable onPress={() => setRowTypePicker({ visible: true, rowIndex: idx })} style={styles.rowTypeCell}>
-                      <Text style={styles.rowTypeCellText}>{rowTypeLabel(row.row_type)}</Text>
-                      <Ionicons name="chevron-down" size={12} color={PALETTE.inkSoft} />
-                    </Pressable>
+              <View style={styles.pricingOptionsList}>
+                {ROW_TYPE_OPTIONS.filter((option) => option.value === "measured").map((option) => {
+                  const lineOption = pricingLineOptions[option.value];
+                  const isOnlyEnabledOption = option.value === "measured" || (lineOption.enabled && enabledPricingLineOptions.length === 1);
+                  const iconName =
+                    option.value === "measured"
+                      ? "resize-outline"
+                      : option.value === "labor"
+                        ? "hammer-outline"
+                        : "cube-outline";
 
-                    {gridVisibility.showQty ? (
-                      row.row_type === "measured" ? (
-                        <TextInput
-                          value={row.qty}
-                          onChangeText={(v) => setCellByIndex(idx, "qty", onlyWholeNumber(v))}
-                          style={[styles.tdInput, styles.qtyCell]}
-                          placeholder="1"
-                          placeholderTextColor={PALETTE.muted}
-                          keyboardType="numeric"
+                  return (
+                    <View key={option.value} style={styles.pricingOptionRow}>
+                      <Pressable
+                        disabled={!canConfigurePricingLines}
+                        onPress={() => {
+                          if (isOnlyEnabledOption) {
+                            Alert.alert("Measured stays active", "Labor and material are priced as separate boxes now, so measured rows stay active in the grid.");
+                            return;
+                          }
+                          setPricingLineOption(option.value, { enabled: !lineOption.enabled });
+                        }}
+                        style={[
+                          styles.pricingOptionToggle,
+                          lineOption.enabled ? styles.pricingOptionToggleActive : null,
+                          !canConfigurePricingLines ? styles.disabledBtn : null,
+                        ]}
+                      >
+                        <Ionicons
+                          name={lineOption.enabled ? "checkmark" : "close-outline"}
+                          size={14}
+                          color={lineOption.enabled ? theme.colors.goldDark : theme.colors.muted}
                         />
-                      ) : (
-                        <View style={[styles.tdInput, styles.qtyCell, styles.qtyHiddenCell]}>
-                          <Text style={styles.qtyHiddenText}>—</Text>
-                        </View>
-                      )
-                    ) : null}
+                      </Pressable>
 
-                    <View style={styles.measureCell}>
-                      {row.row_type === "measured" ? (
-                        <View style={styles.measureShell}>
-                          <View style={styles.measureSide}>
-                            <Text style={styles.measureMiniLabel}>W</Text>
-                            <TextInput
-                              value={row.width_whole}
-                              onChangeText={(v) => setCellByIndex(idx, "width_whole", onlyWholeNumber(v))}
-                              style={[styles.measureInput, styles.measureWhole]}
-                              placeholder="0"
-                              placeholderTextColor={PALETTE.muted}
-                              keyboardType="numeric"
-                            />
-                            <FractionSelect
-                              value={row.width_frac}
-                              onPress={() => openFractionPicker(idx, "width_frac")}
-                              anchorKey={`${idx}-width_frac`}
-                            />
-                          </View>
-
-                          <View style={styles.measureMidDivider}>
-                            <Text style={styles.measureX}>×</Text>
-                          </View>
-
-                          <View style={styles.measureSide}>
-                            <Text style={styles.measureMiniLabel}>L</Text>
-                            <TextInput
-                              value={row.length_whole}
-                              onChangeText={(v) => setCellByIndex(idx, "length_whole", onlyWholeNumber(v))}
-                              style={[styles.measureInput, styles.measureWhole]}
-                              placeholder="0"
-                              placeholderTextColor={PALETTE.muted}
-                              keyboardType="numeric"
-                            />
-                            <FractionSelect
-                              value={row.length_frac}
-                              onPress={() => openFractionPicker(idx, "length_frac")}
-                              anchorKey={`${idx}-length_frac`}
-                            />
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={styles.noMeasurementBox}>
-                          <Ionicons
-                            name={row.row_type === "labor" ? "hammer-outline" : "cube-outline"}
-                            size={14}
-                            color={PALETTE.mutedSoft}
-                          />
-                          <Text style={styles.noMeasurementText}>No measurement required</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <TextInput
-                      value={row.color}
-                      onChangeText={(v) => setCellByIndex(idx, "color", v)}
-                      style={[styles.tdInput, { flex: 2.05 }]}
-                      placeholder={
-                        row.row_type === "labor"
-                          ? "Labor item / service"
-                          : row.row_type === "material"
-                            ? "Material / item / SKU"
-                            : "Color / SKU"
-                      }
-                      placeholderTextColor={PALETTE.muted}
-                    />
-
-                    {visibleCustomHeaders.map((header) => {
-                      const hasOptions = (header.options ?? []).length > 0;
-                      const currentValue = row.extra?.[header.id] ?? "";
-
-                      if (hasOptions) {
-                        return (
-                          <View
-                            key={`${row.id ?? idx}-${header.id}`}
-                            ref={(node) => {
-                              headerOptionAnchorRefs.current[`${idx}-${header.id}`] = node;
-                            }}
-                            collapsable={false}
-                            style={{ flex: 0.95 }}
-                          >
-                            <Pressable
-                              onPress={() => openHeaderOptionPicker(idx, header)}
-                              style={styles.customSelectCell}
-                            >
-                              <Text
-                                style={[styles.customSelectCellText, !currentValue ? styles.customSelectPlaceholder : null]}
-                                numberOfLines={1}
-                              >
-                                {currentValue || header.label}
-                              </Text>
-                              <Ionicons name="chevron-down" size={12} color={PALETTE.inkSoft} />
-                            </Pressable>
-                          </View>
-                        );
-                      }
-
-                      return (
-                        <TextInput
-                          key={`${row.id ?? idx}-${header.id}`}
-                          value={currentValue}
-                          onChangeText={(v) => setExtraCellByIndex(idx, header.id, v)}
-                          style={[styles.tdInput, { flex: 0.95 }]}
-                          placeholder={header.label}
-                          placeholderTextColor={PALETTE.muted}
-                        />
-                      );
-                    })}
-
-                    {effectiveShowAmount ? (
-                      <View style={[styles.amountWrap, { flex: 0.95 }]}>
-                        <TextInput
-                          value={row.amount}
-                          onChangeText={(v) => setCellByIndex(idx, "amount", formatCurrencyDisplay(v))}
-                          style={[styles.tdInput, styles.amountInput, !canEditFinancials ? styles.readOnlyAmountInput : null]}
-                          placeholder={row.row_type === "measured" ? "Unit amount" : "Amount"}
-                          placeholderTextColor={PALETTE.muted}
-                          keyboardType="numeric"
-                          editable={canEditFinancials}
-                        />
-                        <Text style={styles.lineTotal}>{money(line)}</Text>
+                      <View style={styles.pricingOptionIcon}>
+                        <Ionicons name={iconName} size={16} color={theme.colors.ink} />
                       </View>
-                    ) : null}
 
-                    <View style={styles.actionsCell}>
+                      <TextInput
+                        value={lineOption.label}
+                        onChangeText={(label) => setPricingLineOption(option.value, { label })}
+                        placeholder={option.label}
+                        placeholderTextColor={theme.colors.muted}
+                        style={[
+                          styles.pricingOptionLabelInput,
+                          !canConfigurePricingLines ? styles.readOnlyInput : null,
+                        ]}
+                        editable={canConfigurePricingLines}
+                      />
+
+                      <View style={styles.pricingOptionControls}>
+                        <Pressable
+                          disabled={!canConfigurePricingLines}
+                          onPress={() => setPricingLineOption(option.value, { showQuantity: !lineOption.showQuantity })}
+                          style={[styles.pricingOptionChip, lineOption.showQuantity ? styles.pricingOptionChipActive : null]}
+                        >
+                          <Text style={[styles.pricingOptionChipText, lineOption.showQuantity ? styles.pricingOptionChipTextActive : null]}>
+                            Qty
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={!canConfigurePricingLines}
+                          onPress={() => setPricingLineOption(option.value, { showMeasurement: !lineOption.showMeasurement })}
+                          style={[styles.pricingOptionChip, lineOption.showMeasurement ? styles.pricingOptionChipActive : null]}
+                        >
+                          <Text style={[styles.pricingOptionChipText, lineOption.showMeasurement ? styles.pricingOptionChipTextActive : null]}>
+                            Measurements
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={!canConfigurePricingLines}
+                          onPress={() => setPricingLineOption(option.value, { amountEditable: !lineOption.amountEditable })}
+                          style={[styles.pricingOptionChip, lineOption.amountEditable ? styles.pricingOptionChipActive : null]}
+                        >
+                          <Text style={[styles.pricingOptionChipText, lineOption.amountEditable ? styles.pricingOptionChipTextActive : null]}>
+                            Amount editable
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={!canConfigurePricingLines}
+                          onPress={() =>
+                            setPricingLineOption(option.value, {
+                              pricingBehavior: lineOption.pricingBehavior === "unit" ? "fixed" : "unit",
+                            })
+                          }
+                          style={[styles.pricingOptionChip, styles.pricingOptionChipActive]}
+                        >
+                          <Text style={[styles.pricingOptionChipText, styles.pricingOptionChipTextActive]}>
+                            {lineOption.pricingBehavior === "unit" ? "Unit price" : "Fixed amount"}
+                          </Text>
+                        </Pressable>
+                      </View>
+
                       <Pressable
-                        onPress={() => (canEditFieldRows ? duplicateRow(idx) : null)}
-                        style={({ pressed }) => [styles.smallBtn, pressed ? { opacity: 0.85 } : null]}
+                        disabled={!canEditFieldRows || !lineOption.enabled}
+                        onPress={() => addRow(option.value)}
+                        style={[
+                          option.value === "measured" ? styles.addRowBtn : styles.secondaryBtnSmall,
+                          (!canEditFieldRows || !lineOption.enabled) ? styles.disabledBtn : null,
+                        ]}
                       >
-                        <Ionicons name="copy-outline" size={15} color={PALETTE.ink} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => (canEditFieldRows ? deleteRow(idx) : null)}
-                        style={({ pressed }) => [styles.smallBtnDanger, pressed ? { opacity: 0.85 } : null]}
-                      >
-                        <Ionicons name="trash-outline" size={15} color="#fff" />
+                        <Ionicons
+                          name="add"
+                          size={16}
+                          color={option.value === "measured" ? "#111" : theme.colors.ink}
+                        />
+                        <Text style={option.value === "measured" ? styles.addRowText : styles.secondaryText}>
+                          Add
+                        </Text>
                       </Pressable>
                     </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                  );
+                })}
+              </View>
+            </View>
+            ) : null}
 
-            <View style={styles.gridBottomRow}>
-              <View style={{ flex: 1 }} />
+            {canViewFinancials ? (
+              <View style={styles.pricingInputRow}>
+                <View style={styles.pricingInputGroup}>
+                  <Text style={styles.metaLabel}>Tax %</Text>
+                  <TextInput
+                    value={formatPercentDisplay(
+                      String(typeof woMeta.tax_rate_override === "number" ? woMeta.tax_rate_override : taxRate)
+                    )}
+                    onChangeText={(v) => {
+                      const x = formatPercentDisplay(v);
+                      setWoMeta((p) => ({ ...p, tax_rate_override: x.trim() ? Number(x) : undefined }));
+                    }}
+                    placeholder="0"
+                    placeholderTextColor={theme.colors.muted}
+                    style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
+                    keyboardType="numeric"
+                    editable={canEditFinancials}
+                  />
+                </View>
+
+                <View style={styles.pricingInputGroup}>
+                  <Text style={styles.metaLabel}>Installation</Text>
+                  <TextInput
+                    value={formatCurrencyDisplay(String(woMeta.installation ?? 0))}
+                    onChangeText={(v) =>
+                      setWoMeta((p) => ({ ...p, installation: Number(cleanDecimalInput(v) || "0") }))
+                    }
+                    placeholder="0.00"
+                    placeholderTextColor={theme.colors.muted}
+                    style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
+                    keyboardType="numeric"
+                    editable={canEditFinancials}
+                  />
+                </View>
+
+                <View style={styles.pricingInputGroup}>
+                  <Text style={styles.metaLabel}>Labor</Text>
+                  <TextInput
+                    value={formatCurrencyDisplay(String(woMeta.labor ?? 0))}
+                    onChangeText={(v) =>
+                      setWoMeta((p) => ({ ...p, labor: Number(cleanDecimalInput(v) || "0") }))
+                    }
+                    placeholder="0.00"
+                    placeholderTextColor={theme.colors.muted}
+                    style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
+                    keyboardType="numeric"
+                    editable={canEditFinancials}
+                  />
+                </View>
+
+                <View style={styles.pricingInputGroup}>
+                  <Text style={styles.metaLabel}>Material</Text>
+                  <TextInput
+                    value={formatCurrencyDisplay(String(woMeta.material ?? 0))}
+                    onChangeText={(v) =>
+                      setWoMeta((p) => ({ ...p, material: Number(cleanDecimalInput(v) || "0") }))
+                    }
+                    placeholder="0.00"
+                    placeholderTextColor={theme.colors.muted}
+                    style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
+                    keyboardType="numeric"
+                    editable={canEditFinancials}
+                  />
+                </View>
+
+                <View style={styles.pricingInputGroup}>
+                  <Text style={styles.metaLabel}>Deposit</Text>
+                  <TextInput
+                    value={formatCurrencyDisplay(String(woMeta.deposit ?? 0))}
+                    onChangeText={(v) =>
+                      setWoMeta((p) => ({ ...p, deposit: Number(cleanDecimalInput(v) || "0") }))
+                    }
+                    placeholder="0.00"
+                    placeholderTextColor={theme.colors.muted}
+                    style={[styles.metaInputSingle, !canEditFinancials ? styles.readOnlyInput : null]}
+                    keyboardType="numeric"
+                    editable={canEditFinancials}
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            {canViewPricingTotals ? (
+              <>
+            {/* Divider */}
+            <View style={styles.pricingDivider} />
+
+            {/* Totals */}
+            <View style={styles.pricingTotals}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLbl}>Subtotal</Text>
+                <Text style={styles.totalVal}>{money(subtotal)}</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLbl}>Tax ({Number(taxRate).toFixed(2)}%)</Text>
+                <Text style={styles.totalVal}>{money(tax)}</Text>
+              </View>
               {canViewFinancials ? (
-                <View style={styles.totalsBox}>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLbl}>Sub Total</Text>
-                    <Text style={styles.totalVal}>{money(subtotal)}</Text>
-                  </View>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLbl}>Tax ({Number(taxRate).toFixed(2)}%)</Text>
-                    <Text style={styles.totalVal}>{money(tax)}</Text>
-                  </View>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLbl}>Installation</Text>
-                    <Text style={styles.totalVal}>{money(installation)}</Text>
-                  </View>
-                  <View style={[styles.totalRow, { marginTop: 6 }]}>
-                    <Text style={[styles.totalLbl, styles.totalStrong]}>Total</Text>
-                    <Text style={[styles.totalVal, styles.totalStrongValue]}>{money(total)}</Text>
-                  </View>
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLbl}>Installation</Text>
+                  <Text style={styles.totalVal}>{money(installation)}</Text>
+                </View>
+              ) : null}
+              {canViewFinancials ? (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLbl}>Labor</Text>
+                  <Text style={styles.totalVal}>{money(labor)}</Text>
+                </View>
+              ) : null}
+              {canViewFinancials ? (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLbl}>Material</Text>
+                  <Text style={styles.totalVal}>{money(material)}</Text>
+                </View>
+              ) : null}
+              <View style={[styles.totalRow, styles.totalRowStrong]}>
+                <Text style={[styles.totalLbl, styles.totalStrong]}>Total</Text>
+                <Text style={[styles.totalVal, styles.totalStrongValue]}>{money(total)}</Text>
+              </View>
+              {canViewFinancials ? (
+                <>
                   <View style={styles.totalRow}>
                     <Text style={styles.totalLbl}>Deposit</Text>
                     <Text style={styles.totalVal}>{money(deposit)}</Text>
                   </View>
-                  <View style={[styles.totalRow, { marginTop: 6 }]}>
+                  <View style={[styles.totalRow, styles.totalRowStrong]}>
                     <Text style={[styles.totalLbl, styles.totalStrong]}>Balance Due</Text>
                     <Text style={[styles.totalVal, styles.totalStrongValue]}>{money(balanceDue)}</Text>
                   </View>
-                </View>
-              ) : (
-                <View style={styles.totalsBox}>
-                  <Text style={styles.totalLbl}>Pricing is hidden until manager review.</Text>
-                </View>
-              )}
+                </>
+              ) : null}
             </View>
 
+            {/* Divider */}
+            <View style={styles.pricingDivider} />
+
+            {/* Invoice visibility toggles */}
+            <Text style={styles.metaLabel}>Invoice / export visibility</Text>
+            <View style={styles.visibilityGrid}>
+              <VisibilityToggle
+                label="Notes"
+                value={invoiceVisibility.showNotes}
+                onPress={() => setInvoiceVisibility("showNotes", !invoiceVisibility.showNotes)}
+              />
+              <VisibilityToggle
+                label="Measurement"
+                value={invoiceVisibility.showMeasurement}
+                onPress={() => setInvoiceVisibility("showMeasurement", !invoiceVisibility.showMeasurement)}
+              />
+              <VisibilityToggle
+                label="Installation"
+                value={invoiceVisibility.showInstallation}
+                onPress={() => setInvoiceVisibility("showInstallation", !invoiceVisibility.showInstallation)}
+              />
+              <VisibilityToggle
+                label="Labor"
+                value={invoiceVisibility.showLabor}
+                onPress={() => setInvoiceVisibility("showLabor", !invoiceVisibility.showLabor)}
+              />
+              <VisibilityToggle
+                label="Material"
+                value={invoiceVisibility.showMaterial}
+                onPress={() => setInvoiceVisibility("showMaterial", !invoiceVisibility.showMaterial)}
+              />
+              <VisibilityToggle
+                label="Deposit"
+                value={invoiceVisibility.showDeposit}
+                onPress={() => setInvoiceVisibility("showDeposit", !invoiceVisibility.showDeposit)}
+              />
+              <VisibilityToggle
+                label="Signature"
+                value={invoiceVisibility.showSignature}
+                onPress={() => setInvoiceVisibility("showSignature", !invoiceVisibility.showSignature)}
+              />
+            </View>
+
+            {/* Signature line */}
             {invoiceVisibility.showSignature ? (
               <View style={styles.signatureRow}>
                 <View style={{ flex: 2 }}>
@@ -2389,41 +4110,24 @@ export default function WorkOrderDetail() {
                 </View>
               </View>
             ) : null}
+              </>
+            ) : (
+              <View style={styles.pricingHiddenBanner}>
+                <Ionicons name="lock-closed-outline" size={16} color={theme.colors.muted} />
+                <Text style={styles.pricingHiddenText}>
+                  Totals and invoice controls stay hidden until review, but line setup is available here.
+                </Text>
+              </View>
+            )}
           </View>
-        </View>
-
-        <View style={styles.visibilityCard}>
-          <Text style={styles.sectionTitle}>Invoice visibility</Text>
-          <Text style={styles.sectionSub}>Choose what appears on exports and invoice-style output</Text>
-
-          <View style={styles.visibilityGrid}>
-            <VisibilityToggle
-              label="Notes"
-              value={invoiceVisibility.showNotes}
-              onPress={() => setInvoiceVisibility("showNotes", !invoiceVisibility.showNotes)}
-            />
-            <VisibilityToggle
-              label="Measurement"
-              value={invoiceVisibility.showMeasurement}
-              onPress={() => setInvoiceVisibility("showMeasurement", !invoiceVisibility.showMeasurement)}
-            />
-            <VisibilityToggle
-              label="Installation"
-              value={invoiceVisibility.showInstallation}
-              onPress={() => setInvoiceVisibility("showInstallation", !invoiceVisibility.showInstallation)}
-            />
-            <VisibilityToggle
-              label="Deposit"
-              value={invoiceVisibility.showDeposit}
-              onPress={() => setInvoiceVisibility("showDeposit", !invoiceVisibility.showDeposit)}
-            />
-            <VisibilityToggle
-              label="Signature"
-              value={invoiceVisibility.showSignature}
-              onPress={() => setInvoiceVisibility("showSignature", !invoiceVisibility.showSignature)}
-            />
+        ) : (
+          <View style={styles.pricingHiddenBanner}>
+            <Ionicons name="lock-closed-outline" size={16} color={theme.colors.muted} />
+            <Text style={styles.pricingHiddenText}>
+              Pricing is hidden in draft - submit for review to unlock it.
+            </Text>
           </View>
-        </View>
+        )}
 
         <Modal visible={showTemplateMenu} transparent animationType="fade" onRequestClose={() => setShowTemplateMenu(false)}>
           <Pressable style={styles.modalBackdrop} onPress={() => setShowTemplateMenu(false)}>
@@ -2458,59 +4162,80 @@ export default function WorkOrderDetail() {
           visible={rowTypePicker.visible}
           transparent
           animationType="fade"
-          onRequestClose={() => setRowTypePicker({ visible: false, rowIndex: -1 })}
+          onRequestClose={closeRowTypePicker}
         >
-          <Pressable style={styles.modalBackdrop} onPress={() => setRowTypePicker({ visible: false, rowIndex: -1 })}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
-              <Text style={styles.modalTitle}>Select line type</Text>
-
-              <View style={styles.exportList}>
-                {ROW_TYPE_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => {
-                      if (rowTypePicker.rowIndex >= 0) {
-                        setRowTypeByIndex(rowTypePicker.rowIndex, option.value);
-                      }
-                      setRowTypePicker({ visible: false, rowIndex: -1 });
-                    }}
-                    style={styles.exportOption}
-                  >
-                    <Ionicons
-                      name={
-                        option.value === "measured"
-                          ? "resize-outline"
-                          : option.value === "labor"
-                            ? "hammer-outline"
-                            : "cube-outline"
-                      }
-                      size={16}
-                      color={PALETTE.ink}
-                    />
-                    <Text style={styles.exportOptionText}>{option.label}</Text>
-                  </Pressable>
-                ))}
+          <Pressable style={styles.dropdownBackdrop} onPress={closeRowTypePicker}>
+            <Pressable
+              onPress={() => {}}
+              style={[
+                styles.headerOptionDropdownMenu,
+                rowTypeMenuStyle ?? styles.headerOptionDropdownMenuCentered,
+              ]}
+            >
+              <View style={styles.headerOptionDropdownHeader}>
+                <Text style={styles.headerOptionDropdownTitle}>Select line type</Text>
               </View>
-
-              <Pressable onPress={() => setRowTypePicker({ visible: false, rowIndex: -1 })} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>Close</Text>
-              </Pressable>
+              <ScrollView style={styles.fractionDropdownScroll} nestedScrollEnabled>
+                {ROW_TYPE_OPTIONS.filter((option) => {
+                  const currentRowType = rows[rowTypePicker.rowIndex]?.row_type;
+                  return option.value === "measured" || currentRowType === option.value;
+                }).map((option) => {
+                  const selected = rows[rowTypePicker.rowIndex]?.row_type === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => {
+                        if (rowTypePicker.rowIndex >= 0) {
+                          setRowTypeByIndex(rowTypePicker.rowIndex, option.value);
+                        }
+                        closeRowTypePicker();
+                      }}
+                      style={({ pressed, hovered }: any) => [
+                        styles.headerOptionDropdownOption,
+                        pressed || hovered ? styles.headerOptionDropdownOptionHovered : null,
+                        selected ? styles.headerOptionDropdownOptionSelected : null,
+                      ]}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <Ionicons
+                          name={
+                            option.value === "measured"
+                              ? "resize-outline"
+                              : option.value === "labor"
+                                ? "hammer-outline"
+                                : "cube-outline"
+                          }
+                          size={14}
+                          color={selected ? theme.colors.goldDark : theme.colors.ink}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text
+                          style={[
+                            styles.headerOptionDropdownOptionText,
+                            selected ? styles.headerOptionDropdownOptionTextSelected : null,
+                          ]}
+                        >
+                          {rowTypeLabel(option.value, pricingLineOptions)}
+                        </Text>
+                      </View>
+                      {selected ? (
+                        <Ionicons name="checkmark" size={16} color={theme.colors.goldDark} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             </Pressable>
           </Pressable>
         </Modal>
 
         <Modal visible={fractionPicker.visible} transparent animationType="fade" onRequestClose={closeFractionPicker}>
           <Pressable style={styles.dropdownBackdrop} onPress={closeFractionPicker}>
-            <View
+            <Pressable
+              onPress={() => {}}
               style={[
                 styles.fractionDropdownMenu,
-                fractionMenuLeft !== undefined
-                  ? {
-                      left: fractionMenuLeft,
-                      top: fractionMenuTop,
-                      minWidth: Math.max(120, fractionPicker.anchorWidth || 120),
-                    }
-                  : styles.fractionDropdownMenuCentered,
+                fractionMenuStyle ?? styles.fractionDropdownMenuCentered,
               ]}
             >
               <ScrollView style={styles.fractionDropdownScroll} nestedScrollEnabled>
@@ -2540,7 +4265,7 @@ export default function WorkOrderDetail() {
                   );
                 })}
               </ScrollView>
-            </View>
+            </Pressable>
           </Pressable>
         </Modal>
 
@@ -2551,46 +4276,39 @@ export default function WorkOrderDetail() {
           onRequestClose={closeHeaderOptionPicker}
         >
           <Pressable style={styles.dropdownBackdrop} onPress={closeHeaderOptionPicker}>
-            <View
+            <Pressable
+              onPress={() => {}}
               style={[
                 styles.headerOptionDropdownMenu,
-                headerOptionMenuLeft !== undefined
-                  ? {
-                      left: headerOptionMenuLeft,
-                      top: headerOptionMenuTop,
-                      minWidth: Math.max(150, headerOptionPicker.anchorWidth || 150),
-                    }
-                  : styles.headerOptionDropdownMenuCentered,
+                headerOptionMenuStyle ?? styles.headerOptionDropdownMenuCentered,
               ]}
             >
               <View style={styles.headerOptionDropdownHeader}>
                 <Text style={styles.headerOptionDropdownTitle}>{headerOptionPicker.title || "Select option"}</Text>
+                <Text style={styles.headerOptionDropdownSub}>
+                  Current: {headerOptionCurrentValue || "None"}
+                </Text>
               </View>
 
               <ScrollView style={styles.fractionDropdownScroll} nestedScrollEnabled>
-                <Pressable onPress={() => selectHeaderOption("")} style={styles.headerOptionDropdownAction}>
-                  <Ionicons name="close-circle-outline" size={15} color={PALETTE.ink} />
-                  <Text style={styles.headerOptionDropdownActionText}>Clear</Text>
-                </Pressable>
-
-                {headerOptionPicker.options
-                  .filter((option, index) => !(index === 0 && option === ""))
-                  .map((option) => {
-                    const currentValue =
-                      headerOptionPicker.rowIndex >= 0 && headerOptionPicker.headerId
-                        ? rows[headerOptionPicker.rowIndex]?.extra?.[headerOptionPicker.headerId] ?? ""
-                        : "";
-                    const selected = currentValue === option;
+                <View style={styles.headerOptionDropdownGroup}>
+                  <Text style={styles.headerOptionDropdownGroupLabel}>{headerOptionGroupLabel}</Text>
+                  {headerOptionValues.map((option) => {
+                    const selected = headerOptionCurrentValue === option;
 
                     return (
                       <Pressable
                         key={`${headerOptionPicker.headerId}-${option}`}
                         onPress={() => selectHeaderOption(option)}
-                        style={[
+                        style={({ pressed, hovered }: any) => [
                           styles.headerOptionDropdownOption,
+                          pressed || hovered ? styles.headerOptionDropdownOptionHovered : null,
                           selected ? styles.headerOptionDropdownOptionSelected : null,
                         ]}
                       >
+                        <View style={styles.headerOptionDropdownLeftRail}>
+                          {selected ? <View style={styles.headerOptionDropdownAccent} /> : null}
+                        </View>
                         <Text
                           style={[
                             styles.headerOptionDropdownOptionText,
@@ -2600,11 +4318,303 @@ export default function WorkOrderDetail() {
                         >
                           {option}
                         </Text>
+                        {selected ? (
+                          <Ionicons name="checkmark" size={16} color={theme.colors.goldDark} />
+                        ) : null}
                       </Pressable>
                     );
                   })}
+                </View>
+
+                <View style={styles.headerOptionDropdownDivider} />
+                <View style={styles.headerOptionDropdownGroup}>
+                  <Text style={styles.headerOptionDropdownGroupLabel}>Actions</Text>
+                  <Pressable
+                    onPress={() => selectHeaderOption("")}
+                    style={({ pressed, hovered }: any) => [
+                      styles.headerOptionDropdownAction,
+                      pressed || hovered ? styles.headerOptionDropdownActionHovered : null,
+                    ]}
+                  >
+                    <View style={styles.headerOptionDropdownIconSlot}>
+                      <Ionicons name="close-circle-outline" size={15} color="#B42318" />
+                    </View>
+                    <Text style={styles.headerOptionDropdownActionText}>Clear</Text>
+                  </Pressable>
+                </View>
               </ScrollView>
-            </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── Import Pricing Grid Modal ────────────────────────────────── */}
+        <Modal visible={showPricingImport} transparent animationType="slide"
+          onRequestClose={() => setShowPricingImport(false)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setShowPricingImport(false)}>
+            <Pressable style={styles.importModalCard} onPress={() => {}}>
+
+              {/* Header */}
+              <View style={styles.importModalHeader}>
+                {importSelectedId ? (
+                  <Pressable onPress={() => setImportSelectedId("")} style={styles.importModalBack}>
+                    <Ionicons name="chevron-back" size={16} color={theme.colors.ink} />
+                    <Text style={styles.importModalBackText}>Back</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.importModalTitle}>Import Pricing Grid</Text>
+                )}
+                <Pressable onPress={() => setShowPricingImport(false)} style={styles.importModalClose}>
+                  <Ionicons name="close" size={18} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={styles.importModalBody} showsVerticalScrollIndicator={false}>
+                {importLoading ? (
+                  <Text style={styles.importModalMuted}>Loading...</Text>
+                ) : !importSelectedId ? (
+                  importCollections.length === 0 ? (
+                    <Text style={styles.importModalMuted}>
+                      No pricing collections found. Set them up in the Pricing page first.
+                    </Text>
+                  ) : (
+                    importCollections.map(col => (
+                      <Pressable key={col.id} onPress={() => void selectImportCollection(col.id)}
+                        style={({ pressed }) => [styles.importCollectionItem, pressed ? styles.trPressed : null]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.importCollectionName}>{col.name}</Text>
+                          <Text style={styles.importCollectionMeta}>{col.industry_type}</Text>
+                        </View>
+                        <View style={styles.importModeBadge}>
+                          <Text style={styles.importModeBadgeText}>{col.pricing_mode}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={14} color={theme.colors.muted} />
+                      </Pressable>
+                    ))
+                  )
+                ) : (
+                  importPreviewRows.length === 0 &&
+                  !importAdjustments.installation && !importAdjustments.labor && !importAdjustments.material ? (
+                    <Text style={styles.importModalMuted}>
+                      No prices matched. Make sure rows have dimensions set, or the collection has active rules.
+                    </Text>
+                  ) : (
+                    <>
+                      {importPreviewRows.length > 0 ? (
+                        <View style={styles.importPreviewSection}>
+                          <Text style={styles.importPreviewSectionLabel}>Row Amounts</Text>
+                          {importPreviewRows.map((item, i) => (
+                            <Pressable key={i} style={styles.importPreviewRow}
+                              onPress={() => setImportPreviewRows(prev =>
+                                prev.map((p, j) => j === i ? { ...p, selected: !p.selected } : p))}>
+                              <View style={[styles.importCheckbox, item.selected ? styles.importCheckboxOn : null]}>
+                                {item.selected
+                                  ? <Ionicons name="checkmark" size={12} color="#fff" />
+                                  : null}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.importPreviewRowLabel}>Row #{item.inventoryNum}</Text>
+                                <Text style={styles.importPreviewSource}>{item.source}</Text>
+                              </View>
+                              <View style={styles.importPreviewAmounts}>
+                                <Text style={styles.importPreviewOld}>{item.currentAmount || "—"}</Text>
+                                <Ionicons name="arrow-forward" size={11} color={theme.colors.muted} />
+                                <Text style={styles.importPreviewNew}>{item.newAmountDisplay}</Text>
+                              </View>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {(importAdjustments.installation > 0 || importAdjustments.labor > 0 || importAdjustments.material > 0) ? (
+                        <View style={styles.importPreviewSection}>
+                          <Text style={styles.importPreviewSectionLabel}>Adjustment Fields</Text>
+                          {importAdjustments.installation > 0 ? (
+                            <View style={styles.importAdjRow}>
+                              <Text style={styles.importAdjLabel}>Installation</Text>
+                              <Text style={styles.importAdjValue}>+${importAdjustments.installation.toFixed(2)}</Text>
+                            </View>
+                          ) : null}
+                          {importAdjustments.labor > 0 ? (
+                            <View style={styles.importAdjRow}>
+                              <Text style={styles.importAdjLabel}>Labor</Text>
+                              <Text style={styles.importAdjValue}>+${importAdjustments.labor.toFixed(2)}</Text>
+                            </View>
+                          ) : null}
+                          {importAdjustments.material > 0 ? (
+                            <View style={styles.importAdjRow}>
+                              <Text style={styles.importAdjLabel}>Material</Text>
+                              <Text style={styles.importAdjValue}>+${importAdjustments.material.toFixed(2)}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </>
+                  )
+                )}
+              </ScrollView>
+
+              {importSelectedId && !importLoading ? (
+                <View style={styles.importModalFooter}>
+                  <Pressable onPress={() => setShowPricingImport(false)} style={styles.importCancelBtn}>
+                    <Text style={styles.importCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable onPress={applyPricingImport} style={styles.importApplyBtn}>
+                    <Text style={styles.importApplyText}>
+                      Apply {importPreviewRows.filter(r => r.selected).length > 0
+                        ? `(${importPreviewRows.filter(r => r.selected).length} rows)`
+                        : "Adjustments"}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── Invoice Preview Modal ─────────────────────────────────────── */}
+        <Modal visible={showInvoicePreview} transparent animationType="slide" onRequestClose={() => setShowInvoicePreview(false)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setShowInvoicePreview(false)}>
+            <Pressable style={styles.invoicePreviewCard} onPress={() => {}}>
+              {/* Header */}
+              <View style={styles.invoicePreviewHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.invoicePreviewEyebrow}>Invoice Preview</Text>
+                  <Text style={styles.invoicePreviewTitle}>{wo?.title ?? "Work Order"}</Text>
+                  {wo?.client_name ? (
+                    <Text style={styles.invoicePreviewMeta}>Client: {wo.client_name}</Text>
+                  ) : null}
+                </View>
+                <Pressable onPress={() => setShowInvoicePreview(false)} style={styles.invoicePreviewCloseBtn}>
+                  <Ionicons name="close" size={20} color={theme.colors.ink} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={styles.invoicePreviewBody} showsVerticalScrollIndicator={false}>
+                {/* Line items */}
+                <View style={styles.invoicePreviewSection}>
+                  <Text style={styles.invoicePreviewSectionLabel}>Line Items</Text>
+                  {viewRows.length === 0 ? (
+                    <Text style={styles.invoicePreviewEmpty}>No line items yet.</Text>
+                  ) : (
+                    <View style={styles.invoicePreviewTable}>
+                      {/* Table header */}
+                      <View style={styles.invoicePreviewTableHead}>
+                        <Text style={[styles.invoicePreviewColLabel, { flex: 3 }]}>Item / Description</Text>
+                        <Text style={[styles.invoicePreviewColLabel, { flex: 1, textAlign: "right" }]}>Qty</Text>
+                        <Text style={[styles.invoicePreviewColLabel, { flex: 2, textAlign: "right" }]}>Amount</Text>
+                      </View>
+                      {viewRows.map((row, i) => {
+                        const lineTotal = rowLineTotal(row, pricingLineOptions);
+                        const measurement = formatMeasurement(row);
+                        const extraEntries = Object.entries(row.extra ?? {})
+                          .filter(([, v]) => (v ?? "").trim())
+                          .slice(0, 2)
+                          .map(([, v]) => v.trim())
+                          .join(" · ");
+                        return (
+                          <View key={row.id ?? i} style={styles.invoicePreviewTableRow}>
+                            <View style={{ flex: 3 }}>
+                              <Text style={styles.invoicePreviewItemName} numberOfLines={1}>
+                                {row.color.trim() || `${row.row_type.charAt(0).toUpperCase() + row.row_type.slice(1)} #${row.inventory_number}`}
+                              </Text>
+                              {measurement ? (
+                                <Text style={styles.invoicePreviewItemMeta}>{measurement}</Text>
+                              ) : null}
+                              {extraEntries ? (
+                                <Text style={styles.invoicePreviewItemMeta} numberOfLines={1}>{extraEntries}</Text>
+                              ) : null}
+                            </View>
+                            <Text style={[styles.invoicePreviewItemMeta, { flex: 1, textAlign: "right" }]}>
+                              {row.qty || "1"}
+                            </Text>
+                            <Text style={[styles.invoicePreviewItemAmount, { flex: 2, textAlign: "right" }]}>
+                              {money(lineTotal)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                {/* Adjustments */}
+                {(installation > 0 || labor > 0 || material > 0) ? (
+                  <View style={styles.invoicePreviewSection}>
+                    <Text style={styles.invoicePreviewSectionLabel}>Adjustments</Text>
+                    {installation > 0 ? (
+                      <View style={styles.invoicePreviewTotalRow}>
+                        <Text style={styles.invoicePreviewTotalLabel}>Installation</Text>
+                        <Text style={styles.invoicePreviewTotalValue}>{money(installation)}</Text>
+                      </View>
+                    ) : null}
+                    {labor > 0 ? (
+                      <View style={styles.invoicePreviewTotalRow}>
+                        <Text style={styles.invoicePreviewTotalLabel}>Labor</Text>
+                        <Text style={styles.invoicePreviewTotalValue}>{money(labor)}</Text>
+                      </View>
+                    ) : null}
+                    {material > 0 ? (
+                      <View style={styles.invoicePreviewTotalRow}>
+                        <Text style={styles.invoicePreviewTotalLabel}>Material</Text>
+                        <Text style={styles.invoicePreviewTotalValue}>{money(material)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* Totals */}
+                <View style={styles.invoicePreviewTotalsBox}>
+                  <View style={styles.invoicePreviewTotalRow}>
+                    <Text style={styles.invoicePreviewTotalLabel}>Subtotal</Text>
+                    <Text style={styles.invoicePreviewTotalValue}>{money(subtotal)}</Text>
+                  </View>
+                  {tax > 0 ? (
+                    <View style={styles.invoicePreviewTotalRow}>
+                      <Text style={styles.invoicePreviewTotalLabel}>Tax ({Number(taxRate).toFixed(2)}%)</Text>
+                      <Text style={styles.invoicePreviewTotalValue}>{money(tax)}</Text>
+                    </View>
+                  ) : null}
+                  <View style={[styles.invoicePreviewTotalRow, styles.invoicePreviewTotalDivider]}>
+                    <Text style={styles.invoicePreviewTotalBold}>Total</Text>
+                    <Text style={styles.invoicePreviewTotalBold}>{money(total)}</Text>
+                  </View>
+                  {deposit > 0 ? (
+                    <View style={styles.invoicePreviewTotalRow}>
+                      <Text style={styles.invoicePreviewTotalLabel}>Deposit Paid</Text>
+                      <Text style={styles.invoicePreviewTotalValue}>-{money(deposit)}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.invoicePreviewTotalRow}>
+                    <Text style={styles.invoicePreviewBalanceLabel}>Balance Due</Text>
+                    <Text style={styles.invoicePreviewBalanceValue}>{money(balanceDue)}</Text>
+                  </View>
+                </View>
+              </ScrollView>
+
+              {/* Actions */}
+              <View style={styles.invoicePreviewActions}>
+                <Pressable
+                  onPress={() => setShowInvoicePreview(false)}
+                  style={styles.invoicePreviewCancelBtn}
+                >
+                  <Text style={styles.invoicePreviewCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    setShowInvoicePreview(false);
+                    await convertToInvoice();
+                  }}
+                  disabled={converting}
+                  style={[styles.invoicePreviewConvertBtn, converting ? styles.disabledBtn : null]}
+                >
+                  <Ionicons name="swap-horizontal-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.invoicePreviewConvertText}>
+                    {converting ? "Converting..." : "Convert to Invoice"}
+                  </Text>
+                </Pressable>
+              </View>
+            </Pressable>
           </Pressable>
         </Modal>
 
@@ -2613,7 +4623,7 @@ export default function WorkOrderDetail() {
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <Text style={styles.modalTitle}>Delete work order</Text>
               <Text style={styles.modalBodyText}>
-                This will permanently delete {formatWorkOrderNumber(wo?.work_order_number)}.
+                This will permanently delete {formatWorkOrderNumber(wo?.work_order_number)}. Use Archive if you only want to hide it from the active list.
               </Text>
 
               <View style={styles.confirmRow}>
@@ -2646,17 +4656,17 @@ export default function WorkOrderDetail() {
                   }}
                   style={styles.exportOption}
                 >
-                  <Ionicons name="document-text-outline" size={16} color={PALETTE.ink} />
+                  <Ionicons name="document-text-outline" size={16} color={theme.colors.ink} />
                   <Text style={styles.exportOptionText}>PDF</Text>
                 </Pressable>
 
                 <Pressable onPress={exportWord} style={styles.exportOption}>
-                  <Ionicons name="document-outline" size={16} color={PALETTE.ink} />
+                  <Ionicons name="document-outline" size={16} color={theme.colors.ink} />
                   <Text style={styles.exportOptionText}>Word Document</Text>
                 </Pressable>
 
                 <Pressable onPress={exportExcel} style={styles.exportOption}>
-                  <Ionicons name="grid-outline" size={16} color={PALETTE.ink} />
+                  <Ionicons name="grid-outline" size={16} color={theme.colors.ink} />
                   <Text style={styles.exportOptionText}>Excel / CSV</Text>
                 </Pressable>
               </View>
@@ -2675,7 +4685,7 @@ export default function WorkOrderDetail() {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: PALETTE.bg,
+    backgroundColor: theme.colors.bg,
     padding: 22,
   },
 
@@ -2703,13 +4713,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
 
   backText: {
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   secondaryBtn: {
@@ -2720,8 +4730,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
 
   secondaryBtnSmall: {
@@ -2732,13 +4742,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
 
   secondaryText: {
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontSize: 13,
   },
 
@@ -2767,31 +4777,31 @@ const styles = StyleSheet.create({
   h1: {
     fontSize: 30,
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   sub: {
     marginTop: 4,
-    color: PALETTE.muted,
+    color: theme.colors.muted,
     fontWeight: "700",
     fontSize: 14,
   },
 
   headerCard: {
     marginBottom: 12,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     padding: 18,
   },
 
   reviewCard: {
     marginBottom: 12,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     padding: 18,
   },
 
@@ -2808,15 +4818,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.cardSoft,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
 
   reviewStatusPillGold: {
-    backgroundColor: PALETTE.goldSoft,
-    borderColor: PALETTE.gold,
+    backgroundColor: "#DBEAFE",
+    borderColor: theme.colors.gold,
   },
 
   reviewStatusPillBlue: {
@@ -2830,21 +4840,21 @@ const styles = StyleSheet.create({
   },
 
   reviewStatusText: {
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "900",
     fontSize: 12.5,
   },
 
   reviewStatusTextGold: {
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
   },
 
   reviewStatusTextBlue: {
-    color: PALETTE.blue,
+    color: "#1D4ED8",
   },
 
   reviewStatusTextGreen: {
-    color: PALETTE.green,
+    color: "#166534",
   },
 
   reviewActions: {
@@ -2854,16 +4864,73 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
 
+  linkedInvoiceCard: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    borderRadius: 18,
+    backgroundColor: "#EFF6FF",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+
+  linkedInvoiceLabel: {
+    color: theme.colors.goldDark,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+
+  linkedInvoiceTitle: {
+    marginTop: 3,
+    color: theme.colors.ink,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  linkedInvoiceMeta: {
+    marginTop: 3,
+    color: theme.colors.muted,
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+
+  invoiceReadyCard: {
+    marginTop: 14,
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    borderRadius: 16,
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  invoiceReadyText: {
+    flex: 1,
+    color: theme.colors.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+
   reviewNoteInput: {
     minHeight: 80,
     marginTop: 6,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 18,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "800",
   },
 
@@ -2873,7 +4940,7 @@ const styles = StyleSheet.create({
   },
 
   reviewMetaText: {
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontWeight: "700",
     fontSize: 12,
   },
@@ -2881,18 +4948,18 @@ const styles = StyleSheet.create({
   gridCard: {
     padding: 0,
     overflow: "hidden",
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
   },
 
   visibilityCard: {
     marginTop: 12,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     padding: 18,
   },
 
@@ -2901,12 +4968,12 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: PALETTE.border,
+    borderBottomColor: theme.colors.border,
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
     flexWrap: "wrap",
-    backgroundColor: "#FBF6EA",
+    backgroundColor: theme.colors.surface2,
   },
 
   gridToolbarLeft: {
@@ -2923,17 +4990,65 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
 
+  headerVisibilityPanel: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    gap: 8,
+  },
+
+  headerVisibilityTitle: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+
+  headerVisibilityChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  headerVisibilityChip: {
+    minHeight: 32,
+    paddingHorizontal: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    justifyContent: "center",
+  },
+
+  headerVisibilityChipActive: {
+    borderColor: "#BFDBFE",
+    backgroundColor: theme.colors.surface2,
+  },
+
+  headerVisibilityChipText: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  headerVisibilityChipTextActive: {
+    color: theme.colors.goldDark,
+  },
+
   sectionTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   sectionSub: {
     marginTop: 3,
     fontSize: 12,
     fontWeight: "700",
-    color: PALETTE.muted,
+    color: theme.colors.muted,
   },
 
   templateDropdownWrap: {
@@ -2944,7 +5059,7 @@ const styles = StyleSheet.create({
   inlineLabel: {
     fontSize: 11.5,
     fontWeight: "900",
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     marginBottom: 6,
   },
 
@@ -2952,8 +5067,8 @@ const styles = StyleSheet.create({
     minHeight: 38,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2963,7 +5078,7 @@ const styles = StyleSheet.create({
 
   templateDropdownFieldText: {
     flex: 1,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "900",
     fontSize: 13,
   },
@@ -2976,33 +5091,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.goldDark,
-    backgroundColor: PALETTE.gold,
+    borderColor: theme.colors.primaryActive,
+    backgroundColor: theme.colors.primary,
   },
 
   addRowText: {
     fontWeight: "900",
-    color: "#111",
+    color: "#fff",
   },
 
   tableWrap: {
-    padding: 12,
+    // Outer wrapper: no height cap, no scroll.
   },
 
-  rowsScroll: {
-    maxHeight: 420,
+  tableHScroll: {
+    // Horizontal scroll only; page handles vertical scroll.
   },
 
   thead: {
     flexDirection: "row",
-    backgroundColor: "#FBF6EA",
-    borderWidth: 1,
-    borderColor: PALETTE.border,
+    backgroundColor: theme.colors.mutedSurface,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: theme.colors.border,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     overflow: "hidden",
   },
 
+  // Shared header cell
+  thCell: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+  },
+
+  // Keep for backward compat with renderStaticHeader (unused after refactor but harmless)
   thPress: {
     paddingVertical: 10,
     paddingHorizontal: 8,
@@ -3010,19 +5140,49 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: "center",
     borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    minWidth: 0,
+    borderRightColor: theme.colors.border,
   },
 
   thText: {
     fontWeight: "900",
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontSize: 11.5,
+  },
+
+  // Shared body cell: all rows use this + a fixed `width`.
+  tdCell: {
+    height: ROW_HEIGHT,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    alignItems: "stretch",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+
+  tdCenter: {
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+
+  tdGold: {
+    backgroundColor: theme.colors.primarySoft,
+  },
+
+  tdLight: {
+    backgroundColor: theme.colors.surface2,
+    flexDirection: "row",
+    gap: 6,
+  },
+
+  tdDimmed: {
+    backgroundColor: theme.colors.mutedSurface,
   },
 
   sortBadge: {
     fontWeight: "900",
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontSize: 11.5,
   },
 
@@ -3031,190 +5191,130 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderBottomWidth: 1,
-    borderBottomColor: PALETTE.borderSoft,
-    backgroundColor: PALETTE.card,
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    minHeight: ROW_HEIGHT,
   },
 
   trStriped: {
-    backgroundColor: PALETTE.cardSoft,
+    backgroundColor: "#F8FAFC",
   },
 
   trPressed: {
     opacity: 0.97,
   },
 
-  inventoryCell: {
-    flex: 0.72,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    backgroundColor: "#FFF8E5",
-    minWidth: 0,
-  },
-
   inventoryText: {
     fontWeight: "900",
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
     fontSize: 12.5,
-  },
-
-  rowTypeCell: {
-    flex: 1.05,
-    minWidth: 0,
-    borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
-    backgroundColor: "#FFFDF8",
   },
 
   rowTypeCellText: {
     fontWeight: "800",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontSize: 12,
   },
 
+  // Used inside tdCell for TextInput cells
   tdInput: {
-    height: 50,
+    height: ROW_HEIGHT,
     paddingHorizontal: 8,
     fontWeight: "800",
-    color: PALETTE.ink,
-    minWidth: 0,
-    borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-  },
-
-  qtyCell: {
-    flex: 0.65,
-    textAlign: "center",
-  },
-
-  qtyHiddenCell: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F7F2E6",
+    color: theme.colors.ink,
   },
 
   qtyHiddenText: {
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontWeight: "900",
   },
 
-  measureCell: {
-    flex: 2.9,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    minWidth: 0,
-    justifyContent: "center",
-  },
-
+  // Measurement cell: flat row layout, fixed widths.
   measureShell: {
-    width: "100%",
-    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 6,
+    gap: 5,
+    paddingHorizontal: 4,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 10,
-    backgroundColor: "#FFFDF8",
+    backgroundColor: theme.colors.surface,
   },
 
   noMeasurementBox: {
-    minHeight: 40,
+    height: 36,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 10,
-    backgroundColor: "#FFFDF8",
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
   },
 
   noMeasurementText: {
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontWeight: "800",
     fontSize: 12,
-  },
-
-  measureSide: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
   },
 
   measureMiniLabel: {
     width: 14,
     fontSize: 10.5,
     fontWeight: "900",
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     textAlign: "center",
   },
 
-  measureMidDivider: {
-    width: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-
   measureInput: {
-    height: 32,
+    width: 42,
+    height: 30,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 4,
-    backgroundColor: "#FFF7F7",
-    color: PALETTE.ink,
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.ink,
     fontWeight: "800",
     textAlign: "center",
     paddingHorizontal: 4,
   },
 
   measureWhole: {
-    width: 44,
-    flexShrink: 0,
+    // Same as measureInput; kept for compatibility.
   },
 
   measureX: {
     fontWeight: "900",
-    color: PALETTE.goldDark,
-    fontSize: 12,
+    color: theme.colors.primary,
+    fontSize: 13,
+    width: 14,
     textAlign: "center",
   },
 
   fractionDropdownField: {
-    minWidth: 82,
+    width: 76,
     height: 32,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#BCBCBC",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 6,
+    gap: 4,
   },
 
   fractionDropdownText: {
     flex: 1,
     fontWeight: "800",
-    color: PALETTE.ink,
-    fontSize: 11.5,
+    color: theme.colors.ink,
+    fontSize: 11,
   },
 
   dropdownBackdrop: {
@@ -3225,13 +5325,15 @@ const styles = StyleSheet.create({
   fractionDropdownMenu: {
     position: "absolute",
     maxHeight: 330,
-    backgroundColor: "#FFF4F4",
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: "#999999",
+    borderColor: theme.colors.borderStrong,
+    borderRadius: 12,
+    padding: 6,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 12,
   },
 
@@ -3246,16 +5348,15 @@ const styles = StyleSheet.create({
   },
 
   fractionDropdownOption: {
-    minHeight: 34,
+    minHeight: 36,
     paddingHorizontal: 12,
     justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E6DADA",
-    backgroundColor: "#FFF4F4",
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
   },
 
   fractionDropdownOptionSelected: {
-    backgroundColor: "#1976D2",
+    backgroundColor: "#FFFBEB",
   },
 
   fractionDropdownOptionText: {
@@ -3265,23 +5366,24 @@ const styles = StyleSheet.create({
   },
 
   fractionDropdownOptionTextSelected: {
-    color: "#FFFFFF",
+    color: theme.colors.goldDark,
     fontWeight: "900",
   },
 
   headerOptionDropdownMenu: {
     position: "absolute",
     maxHeight: 340,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    borderRadius: 16,
+    borderColor: theme.colors.borderStrong,
+    borderRadius: 14,
+    padding: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 12,
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   headerOptionDropdownMenuCentered: {
@@ -3291,58 +5393,116 @@ const styles = StyleSheet.create({
   },
 
   headerOptionDropdownHeader: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: PALETTE.border,
-    backgroundColor: PALETTE.cardSoft,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+    backgroundColor: theme.colors.surface,
   },
 
   headerOptionDropdownTitle: {
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "900",
     fontSize: 13,
   },
 
+  headerOptionDropdownSub: {
+    marginTop: 3,
+    color: theme.colors.muted,
+    fontWeight: "700",
+    fontSize: 11,
+  },
+
+  headerOptionDropdownGroup: {
+    gap: 4,
+  },
+
+  headerOptionDropdownGroupLabel: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+    color: theme.colors.muted,
+    fontSize: 10.5,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  headerOptionDropdownDivider: {
+    height: 1,
+    marginHorizontal: 8,
+    marginVertical: 8,
+    backgroundColor: "#F3E8CF",
+  },
+
   headerOptionDropdownAction: {
-    minHeight: 38,
-    paddingHorizontal: 12,
+    minHeight: 40,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: PALETTE.borderSoft,
-    backgroundColor: PALETTE.cardSoft,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+  },
+
+  headerOptionDropdownActionHovered: {
+    backgroundColor: "#FFF7F7",
+  },
+
+  headerOptionDropdownIconSlot: {
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   headerOptionDropdownActionText: {
-    color: PALETTE.ink,
-    fontWeight: "800",
+    color: "#B42318",
+    fontWeight: "900",
     fontSize: 13,
   },
 
   headerOptionDropdownOption: {
-    minHeight: 38,
-    paddingHorizontal: 12,
-    justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: PALETTE.borderSoft,
-    backgroundColor: PALETTE.card,
+    minHeight: 42,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
   },
 
   headerOptionDropdownOptionSelected: {
-    backgroundColor: PALETTE.goldSoft,
+    backgroundColor: "#FFFBEB",
+  },
+
+  headerOptionDropdownOptionHovered: {
+    backgroundColor: theme.colors.surface2,
   },
 
   headerOptionDropdownOptionText: {
-    color: PALETTE.ink,
-    fontWeight: "800",
+    flex: 1,
+    color: theme.colors.ink,
+    fontWeight: "700",
     fontSize: 13,
   },
 
   headerOptionDropdownOptionTextSelected: {
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
     fontWeight: "900",
+  },
+
+  headerOptionDropdownLeftRail: {
+    width: 4,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  headerOptionDropdownAccent: {
+    width: 4,
+    height: 24,
+    borderRadius: 99,
+    backgroundColor: theme.colors.gold,
   },
 
   customSelectCell: {
@@ -3354,19 +5514,130 @@ const styles = StyleSheet.create({
     height: 50,
     paddingHorizontal: 8,
     borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
-    backgroundColor: "#FFFDF8",
+    borderRightColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
 
   customSelectCellText: {
     flex: 1,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "800",
     fontSize: 12.5,
   },
 
   customSelectPlaceholder: {
-    color: PALETTE.muted,
+    color: theme.colors.muted,
+  },
+
+  measurementFieldCell: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+
+  customHybridCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 0,
+    paddingHorizontal: 8,
+    backgroundColor: theme.colors.surface,
+  },
+
+  customHybridPress: {
+    flex: 1,
+    minWidth: 0,
+    height: 34,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    borderTopLeftRadius: 8,
+    borderBottomLeftRadius: 8,
+    borderWidth: 1,
+    borderRightWidth: 0,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+
+  customHybridInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 38,
+    color: theme.colors.ink,
+    fontWeight: "800",
+    fontSize: 12.5,
+  },
+
+  customHybridButton: {
+    width: 34,
+    height: 34,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  fieldChoiceCell: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 5,
+    backgroundColor: theme.colors.surface,
+  },
+
+  fieldPillWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+  },
+
+  fieldSegmentedWrap: {
+    flexDirection: "row",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+  },
+
+  fieldPill: {
+    minHeight: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 7,
+    justifyContent: "center",
+  },
+
+  fieldSegment: {
+    minHeight: 28,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 7,
+    justifyContent: "center",
+  },
+
+  fieldChoiceActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primarySoft,
+  },
+
+  fieldChoiceText: {
+    color: theme.colors.muted,
+    fontSize: 10.5,
+    fontWeight: "900",
+  },
+
+  fieldChoiceTextActive: {
+    color: theme.colors.primaryActive,
+  },
+
+  fieldInlineInput: {
+    height: 22,
+    color: theme.colors.ink,
+    fontSize: 11,
+    fontWeight: "800",
+    paddingHorizontal: 0,
   },
 
   amountWrap: {
@@ -3374,7 +5645,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingRight: 8,
     borderRightWidth: 1,
-    borderRightColor: PALETTE.border,
+    borderRightColor: theme.colors.border,
     minWidth: 0,
   },
 
@@ -3388,7 +5659,7 @@ const styles = StyleSheet.create({
 
   readOnlyInput: {
     backgroundColor: "#F4F1E8",
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
   },
 
   readOnlyAmountInput: {
@@ -3399,7 +5670,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: "right",
     fontWeight: "900",
-    color: PALETTE.inkSoft,
+    color: theme.colors.ink,
     fontSize: 12,
   },
 
@@ -3417,8 +5688,8 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3454,32 +5725,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
 
   visibilityChipOn: {
-    backgroundColor: PALETTE.goldSoft,
-    borderColor: PALETTE.gold,
+    backgroundColor: "#DBEAFE",
+    borderColor: theme.colors.gold,
   },
 
   visibilityChipText: {
     fontWeight: "800",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontSize: 12.5,
   },
 
   visibilityChipTextOn: {
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
   },
 
   totalsBox: {
     width: 320,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 18,
     backgroundColor: "#FFFDF8",
     padding: 12,
@@ -3493,23 +5764,23 @@ const styles = StyleSheet.create({
   },
 
   totalLbl: {
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontWeight: "800",
   },
 
   totalVal: {
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "900",
   },
 
   totalStrong: {
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   totalStrongValue: {
     fontWeight: "900",
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
     fontSize: 16,
   },
 
@@ -3521,7 +5792,7 @@ const styles = StyleSheet.create({
   },
 
   sigLabel: {
-    color: PALETTE.muted,
+    color: theme.colors.muted,
     fontWeight: "900",
     fontSize: 12,
     marginBottom: 8,
@@ -3558,7 +5829,7 @@ const styles = StyleSheet.create({
   },
 
   metaLabel: {
-    color: PALETTE.mutedSoft,
+    color: theme.colors.mutedSoft,
     fontWeight: "900",
     fontSize: 12,
     marginBottom: 6,
@@ -3567,23 +5838,23 @@ const styles = StyleSheet.create({
   metaInput: {
     minHeight: 92,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 18,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "800",
   },
 
   metaInputSingle: {
     height: 44,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     borderRadius: 18,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontWeight: "900",
   },
 
@@ -3591,8 +5862,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.cardSoft,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 10,
     flexDirection: "row",
@@ -3602,7 +5873,7 @@ const styles = StyleSheet.create({
 
   infoChipText: {
     flex: 1,
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "800",
@@ -3619,22 +5890,22 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 420,
-    backgroundColor: PALETTE.card,
+    backgroundColor: theme.colors.surface,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: PALETTE.border,
+    borderColor: theme.colors.border,
     padding: 16,
   },
 
   modalTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
     marginBottom: 12,
   },
 
   modalBodyText: {
-    color: PALETTE.inkSoft,
+    color: theme.colors.ink,
     fontWeight: "700",
     lineHeight: 20,
     marginBottom: 14,
@@ -3645,15 +5916,15 @@ const styles = StyleSheet.create({
     minHeight: 40,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
 
   modalCloseText: {
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   confirmRow: {
@@ -3666,15 +5937,15 @@ const styles = StyleSheet.create({
     minHeight: 42,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.card,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
 
   modalCancelText: {
     fontWeight: "900",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   modalDeleteBtn: {
@@ -3701,8 +5972,8 @@ const styles = StyleSheet.create({
     minHeight: 42,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.cardSoft,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -3711,32 +5982,668 @@ const styles = StyleSheet.create({
 
   exportOptionText: {
     fontWeight: "800",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   templateOption: {
     minHeight: 42,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: PALETTE.border,
-    backgroundColor: PALETTE.cardSoft,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
   },
 
   templateOptionActive: {
-    backgroundColor: PALETTE.goldSoft,
-    borderColor: PALETTE.gold,
+    backgroundColor: "#DBEAFE",
+    borderColor: theme.colors.gold,
   },
 
   templateOptionText: {
     fontWeight: "800",
-    color: PALETTE.ink,
+    color: theme.colors.ink,
   },
 
   templateOptionTextActive: {
-    color: PALETTE.goldDark,
+    color: theme.colors.goldDark,
     fontWeight: "900",
+  },
+
+  // Pricing panel.
+  pricingPanel: {
+    marginTop: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 20,
+    gap: 14,
+  },
+
+  pricingPanelHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+
+  pricingInputRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+
+  pricingInputGroup: {
+    flex: 1,
+    minWidth: 120,
+  },
+
+  pricingOptionsPanel: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 18,
+    backgroundColor: "#EFF6FF",
+    padding: 14,
+    gap: 12,
+  },
+
+  pricingOptionsHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+
+  pricingOptionsTitle: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  pricingOptionsSub: {
+    marginTop: 3,
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  pricingOptionsMeta: {
+    color: theme.colors.goldDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+
+  pricingOptionsList: {
+    gap: 10,
+  },
+
+  pricingOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+
+  pricingOptionToggle: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pricingOptionToggleActive: {
+    borderColor: theme.colors.gold,
+    backgroundColor: "#FFF7D6",
+  },
+
+  pricingOptionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pricingOptionLabelInput: {
+    flex: 1,
+    minWidth: 180,
+    height: 40,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 12,
+    color: theme.colors.ink,
+    fontWeight: "800",
+  },
+
+  pricingOptionControls: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    flex: 1.2,
+    minWidth: 260,
+  },
+
+  pricingOptionChip: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pricingOptionChipActive: {
+    borderColor: "#BFDBFE",
+    backgroundColor: theme.colors.surface2,
+  },
+
+  pricingOptionChipText: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  pricingOptionChipTextActive: {
+    color: theme.colors.goldDark,
+  },
+
+  pricingDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginVertical: 4,
+  },
+
+  pricingTotals: {
+    gap: 2,
+  },
+
+  totalRowStrong: {
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+
+  pricingHiddenBanner: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+
+  pricingHiddenText: {
+    flex: 1,
+    color: theme.colors.muted,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  saveBannerError: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: theme.colors.dangerBg,
+    borderWidth: 1,
+    borderColor: theme.colors.dangerBorder,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+
+  saveBannerErrorText: {
+    flex: 1,
+    color: "#B42318",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  saveBannerSuccess: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: theme.colors.successBg,
+    borderWidth: 1,
+    borderColor: theme.colors.successBorder,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+
+  saveBannerSuccessText: {
+    color: "#166534",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  // ── Invoice Preview Modal ──────────────────────────────────────────────────
+  invoicePreviewCard: {
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "88%",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+  },
+  invoicePreviewHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    gap: 12,
+  },
+  invoicePreviewEyebrow: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: theme.colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
+  invoicePreviewTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  invoicePreviewMeta: {
+    fontSize: 12.5,
+    color: theme.colors.muted,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  invoicePreviewCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invoicePreviewBody: {
+    flex: 1,
+    paddingHorizontal: 18,
+  },
+  invoicePreviewSection: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    gap: 8,
+  },
+  invoicePreviewSectionLabel: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: theme.colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  invoicePreviewEmpty: {
+    fontSize: 13,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    fontStyle: "italic",
+  },
+  invoicePreviewTable: { gap: 0 },
+  invoicePreviewTableHead: {
+    flexDirection: "row",
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    gap: 8,
+  },
+  invoicePreviewColLabel: {
+    fontSize: 10.5,
+    fontWeight: "900",
+    color: theme.colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  invoicePreviewTableRow: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  invoicePreviewItemName: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  invoicePreviewItemMeta: {
+    fontSize: 11.5,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  invoicePreviewItemAmount: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  invoicePreviewTotalsBox: {
+    paddingVertical: 14,
+    gap: 8,
+  },
+  invoicePreviewTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  invoicePreviewTotalDivider: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingTop: 8,
+    marginTop: 4,
+  },
+  invoicePreviewTotalLabel: {
+    fontSize: 13,
+    color: theme.colors.muted,
+    fontWeight: "700",
+  },
+  invoicePreviewTotalValue: {
+    fontSize: 13,
+    color: theme.colors.ink,
+    fontWeight: "700",
+  },
+  invoicePreviewTotalBold: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  invoicePreviewBalanceLabel: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  invoicePreviewBalanceValue: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: theme.colors.goldDark,
+  },
+  invoicePreviewActions: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  invoicePreviewCancelBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invoicePreviewCancelText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  invoicePreviewConvertBtn: {
+    flex: 2,
+    minHeight: 44,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    backgroundColor: theme.colors.gold,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  invoicePreviewConvertText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+
+  importPricingBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    backgroundColor: "#FFFBEB",
+  },
+  importPricingBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.goldDark,
+  },
+
+  importModalCard: {
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "85%",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+  },
+  importModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  importModalTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  importModalBack: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  importModalBackText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  importModalClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importModalBody: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  importModalMuted: {
+    fontSize: 13,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    fontStyle: "italic",
+    paddingVertical: 16,
+  },
+  importCollectionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  importCollectionName: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  importCollectionMeta: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  importModeBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: theme.colors.gold,
+  },
+  importModeBadgeText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#fff",
+    textTransform: "capitalize",
+  },
+  importPreviewSection: {
+    paddingBottom: 14,
+  },
+  importPreviewSectionLabel: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: theme.colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+    marginVertical: 10,
+  },
+  importPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  importCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importCheckboxOn: {
+    backgroundColor: theme.colors.gold,
+    borderColor: theme.colors.gold,
+  },
+  importPreviewRowLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.ink,
+  },
+  importPreviewSource: {
+    fontSize: 11.5,
+    color: theme.colors.muted,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  importPreviewAmounts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  importPreviewOld: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    fontWeight: "600",
+  },
+  importPreviewNew: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: theme.colors.goldDark,
+  },
+  importAdjRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  importAdjLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.ink,
+  },
+  importAdjValue: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#166534",
+  },
+  importModalFooter: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  importCancelBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importCancelText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: theme.colors.ink,
+  },
+  importApplyBtn: {
+    flex: 2,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: theme.colors.gold,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importApplyText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#fff",
   },
 });
