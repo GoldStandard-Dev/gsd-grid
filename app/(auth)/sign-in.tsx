@@ -13,16 +13,32 @@ import { ui } from "../../src/theme/ui";
 
 export default function SignIn() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ redirectTo?: string }>();
+  const params = useLocalSearchParams<{
+    redirectTo?: string;
+    reset?: string;
+    confirmed?: string;
+    signup?: string;
+    email?: string;
+  }>();
 
   const redirectTo = useMemo(() => {
     return typeof params.redirectTo === "string" ? params.redirectTo : "";
   }, [params.redirectTo]);
+  const initialMessage = useMemo(() => {
+    if (params.signup === "check-email") return "Account created. Check your email to confirm your address, then sign in.";
+    if (params.signup === "created") return "Owner account created. Sign in to open your workspace.";
+    if (params.confirmed === "success") return "Email confirmed. Sign in to finish opening your workspace.";
+    if (params.reset === "success") return "Password updated. Sign in with your new password.";
+    return null;
+  }, [params.confirmed, params.reset, params.signup]);
+  const initialEmail = useMemo(() => {
+    return typeof params.email === "string" ? params.email : "";
+  }, [params.email]);
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(initialMessage);
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
 
@@ -37,24 +53,28 @@ export default function SignIn() {
       return;
     }
 
+    const meta = (user.user_metadata ?? {}) as Record<string, string>;
+    const companyName = meta.company_name?.trim();
+    const signedUpAsOwner = meta.role === "owner" || meta.portal_type === "admin";
     let orgId = await getUserOrgId(user.id);
 
-    // No org yet - happens when email confirmation was required at sign-up.
-    // Auto-create the org + profile using the metadata saved during sign-up.
-    if (!orgId) {
-      const meta = (user.user_metadata ?? {}) as Record<string, string>;
-      const companyName = meta.company_name?.trim();
-
-      if (companyName) {
-        const setup = await setupNewAccount({
-          orgName: companyName,
-          fullName: meta.full_name ?? "",
-          email: user.email ?? "",
-          phone: meta.phone ?? undefined,
-          jobTitle: meta.job_title ?? "Owner",
-        });
-        if (setup.ok) orgId = setup.orgId;
+    // Owner signups may confirm email before the app has a session to create the
+    // workspace. Repair the owner membership on every owner sign-in.
+    if (signedUpAsOwner || (!orgId && companyName)) {
+      if (!companyName) {
+        throw new Error("Owner account metadata is missing a company name.");
       }
+
+      const setup = await setupNewAccount({
+        orgName: companyName,
+        fullName: meta.full_name ?? "",
+        email: user.email ?? "",
+        phone: meta.phone ?? undefined,
+        jobTitle: meta.job_title ?? "Owner",
+      });
+
+      if (!setup.ok) throw new Error(setup.error);
+      orgId = setup.orgId;
     }
 
     if (Platform.OS !== "web") {
@@ -127,7 +147,7 @@ export default function SignIn() {
     try {
       setResetting(true);
       const redirectToUrl =
-        typeof window !== "undefined" ? `${window.location.origin}/(auth)/sign-in` : undefined;
+        typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined;
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo: redirectToUrl,
       });

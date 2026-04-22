@@ -132,7 +132,27 @@ export default function AppLayout() {
         const userId = data.user?.id;
         if (!userId) return;
 
-        const orgId = await getUserOrgId(userId);
+        let orgId = await getUserOrgId(userId);
+
+        // No org yet — happens when email confirmation redirects straight to the app
+        // without going through sign-in.tsx. Auto-create from signup metadata.
+        if (!orgId) {
+          const { data: authData } = await supabase.auth.getUser();
+          const meta = (authData?.user?.user_metadata ?? {}) as Record<string, string>;
+          const companyName = meta.company_name?.trim();
+          if (companyName) {
+            const { setupNewAccount } = await import("../../src/lib/auth");
+            const setup = await setupNewAccount({
+              orgName: companyName,
+              fullName: meta.full_name ?? "",
+              email: authData?.user?.email ?? "",
+              phone: meta.phone ?? undefined,
+              jobTitle: meta.job_title ?? "Owner",
+            });
+            if (setup.ok) orgId = setup.orgId;
+          }
+        }
+
         if (!orgId) return;
 
         const { data: member } = await supabase
@@ -427,6 +447,28 @@ export default function AppLayout() {
           ) : null
         )}
 
+        <View style={styles.sidebarSupportWrap}>
+          <Pressable
+            accessibilityLabel="Support"
+            onPress={() => setSupportOpen(true)}
+            style={({ pressed, hovered }: any) => [
+              styles.sidebarSupportButton,
+              hovered ? styles.sidebarSupportButtonHover : null,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <View style={styles.sidebarSupportIcon}>
+              <Ionicons name="chatbubble-ellipses-outline" size={17} color={theme.colors.primaryHover} />
+            </View>
+            {!collapsed ? (
+              <View style={styles.sidebarSupportCopy}>
+                <Text style={styles.sidebarSupportTitle}>Support</Text>
+                <Text style={styles.sidebarSupportMeta}>Help, docs, report issue</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+
       </View>
 
       <View style={styles.main}>
@@ -443,21 +485,6 @@ export default function AppLayout() {
           <Slot />
         </View>
       </View>
-
-      <Pressable
-        accessibilityLabel="Support"
-        onPress={() => setSupportOpen(true)}
-        style={({ pressed, hovered }: any) => [
-          styles.supportFab,
-          hovered ? styles.supportFabHover : null,
-          pressed ? styles.pressed : null,
-        ]}
-      >
-        <Ionicons name="chatbubble-ellipses-outline" size={22} color="#111111" />
-        <View style={styles.supportTooltip}>
-          <Text style={styles.supportTooltipText}>Support</Text>
-        </View>
-      </Pressable>
 
       <Modal visible={supportOpen} transparent animationType="fade" onRequestClose={() => setSupportOpen(false)}>
         <Pressable style={styles.supportBackdrop} onPress={() => setSupportOpen(false)}>
@@ -529,6 +556,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 0,
     paddingBottom: 16,
+    display: "flex",
   },
   sidebarCollapsed: {
     width: 92,
@@ -720,6 +748,53 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "900",
   },
+  sidebarSupportWrap: {
+    marginTop: "auto",
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  sidebarSupportButton: {
+    minHeight: 54,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sidebarSupportButtonHover: {
+    backgroundColor: theme.colors.primarySoft,
+    transform: [{ translateX: 2 }],
+  },
+  sidebarSupportIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sidebarSupportCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sidebarSupportTitle: {
+    color: theme.colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  sidebarSupportMeta: {
+    marginTop: 2,
+    color: theme.colors.mutedSoft,
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
   main: {
     flex: 1,
   },
@@ -759,56 +834,13 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.92,
   },
-  supportFab: {
-    position: "absolute",
-    right: 24,
-    bottom: 24,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: theme.colors.gold,
-    backgroundColor: theme.colors.gold,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
-    zIndex: 20,
-  },
-  supportFabHover: {
-    transform: [{ translateY: -1 }],
-    backgroundColor: theme.colors.goldLight,
-  },
-  supportTooltip: {
-    position: "absolute",
-    right: 62,
-    minHeight: 30,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  supportTooltipText: {
-    color: theme.colors.ink,
-    fontSize: 12,
-    fontWeight: "900",
-  },
   supportBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.18)",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     justifyContent: "flex-end",
     padding: 24,
+    paddingLeft: 276,
   },
   supportPanel: {
     width: 320,

@@ -123,6 +123,7 @@ type InvoiceVisibility = {
 };
 
 type GridVisibility = {
+  showType: boolean;
   showQty: boolean;
   showMeasurement: boolean;
   showAmount: boolean;
@@ -309,6 +310,7 @@ const DEFAULT_INVOICE_VISIBILITY: InvoiceVisibility = {
 };
 
 const DEFAULT_GRID_VISIBILITY: GridVisibility = {
+  showType: true,
   showQty: true,
   showMeasurement: true,
   showAmount: true,
@@ -911,6 +913,49 @@ function hasGridRowDetails(row: GridRow) {
   );
 }
 
+function lineItemSnapshotLabel(item: LineItemSnapshot) {
+  const meta = parseRowMeta(item.description);
+  const fieldValue = Object.values(meta.fields ?? {}).find((value) => String(value ?? "").trim().length > 0);
+  const directValue = (item.item ?? "").trim() || String(fieldValue ?? "").trim() || (item.unit ?? "").trim();
+  if (directValue) return directValue;
+  const number = Number(item.sort_order ?? 0) + 1;
+  return `line item ${number}`;
+}
+
+function gridRowActivityLabel(row: GridRow) {
+  return row.color.trim() || Object.values(row.extra ?? {}).find((value) => String(value ?? "").trim().length > 0)?.trim() || formatMeasurement(row).trim() || `line item ${row.inventory_number}`;
+}
+
+function formatLineItemValue(value: unknown, currency = false) {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  if (currency) return money(Number(value ?? 0));
+  return text;
+}
+
+function describeLineItemFieldChanges(before: LineItemSnapshot, after: LineItemSnapshot, headers: CustomHeader[]) {
+  const changes: Record<string, { from: string; to: string }> = {};
+  const beforeMeta = parseRowMeta(before.description);
+  const afterMeta = parseRowMeta(after.description);
+
+  const addChange = (label: string, from: string, to: string) => {
+    if (from !== to) changes[label] = { from, to };
+  };
+
+  addChange("quantity", formatLineItemValue(before.qty), formatLineItemValue(after.qty));
+  addChange("measurement", formatLineItemValue(before.unit), formatLineItemValue(after.unit));
+  addChange("item", formatLineItemValue(before.item), formatLineItemValue(after.item));
+  addChange("price", formatLineItemValue(before.unit_price, true), formatLineItemValue(after.unit_price, true));
+
+  const fieldIds = Array.from(new Set([...Object.keys(beforeMeta.fields ?? {}), ...Object.keys(afterMeta.fields ?? {})]));
+  fieldIds.forEach((fieldId) => {
+    const label = headers.find((header) => header.id === fieldId)?.label || fieldId;
+    addChange(label, formatLineItemValue(beforeMeta.fields?.[fieldId]), formatLineItemValue(afterMeta.fields?.[fieldId]));
+  });
+
+  return changes;
+}
+
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -937,6 +982,7 @@ type GridRowProps = {
   isStriped: boolean;
   pricingLineOptions: PricingLineOptions;
   visibleCustomHeaders: CustomHeader[];
+  showType: boolean;
   showQty: boolean;
   effectiveShowAmount: boolean;
   canEditFieldRows: boolean;
@@ -956,7 +1002,7 @@ type GridRowProps = {
 const MemoGridRow = memo(function GridRowInner({
   row, idx, isStriped,
   pricingLineOptions,
-  visibleCustomHeaders, showQty, effectiveShowAmount,
+  visibleCustomHeaders, showType, showQty, effectiveShowAmount,
   canEditFieldRows, canEditFinancials,
   onSetCell, onSetExtra,
   onOpenFractionPicker, onOpenHeaderOptionPicker, onOpenRowTypePicker,
@@ -1183,19 +1229,21 @@ const MemoGridRow = memo(function GridRowInner({
       </View>
 
       {/* TYPE */}
-      <View
-        ref={(node) => { rowTypeAnchorRefs.current[String(idx)] = node; }}
-        collapsable={false}
-        style={{ width: COLS.type }}
-      >
-        <Pressable
-          onPress={() => onOpenRowTypePicker(idx)}
-          style={[styles.tdCell, { width: COLS.type }, styles.tdCenter, styles.tdLight]}
+      {showType ? (
+        <View
+          ref={(node) => { rowTypeAnchorRefs.current[String(idx)] = node; }}
+          collapsable={false}
+          style={{ width: COLS.type }}
         >
-          <Text style={styles.rowTypeCellText}>{rowTypeLabel(row.row_type, pricingLineOptions)}</Text>
-          <Ionicons name="chevron-down" size={12} color={theme.colors.ink} />
-        </Pressable>
-      </View>
+          <Pressable
+            onPress={() => onOpenRowTypePicker(idx)}
+            style={[styles.tdCell, { width: COLS.type }, styles.tdCenter, styles.tdLight]}
+          >
+            <Text style={styles.rowTypeCellText}>{rowTypeLabel(row.row_type, pricingLineOptions)}</Text>
+            <Ionicons name="chevron-down" size={12} color={theme.colors.ink} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* QTY */}
       {showQty ? (
@@ -1382,6 +1430,7 @@ export default function WorkOrderDetail() {
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [converting, setConverting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -2293,14 +2342,54 @@ export default function WorkOrderDetail() {
     }));
   }
 
-  function submitForReview() {
+  async function persistReviewWorkflow(next: Partial<ReviewWorkflow>) {
+    if (!wo || reviewSaving) return null;
+
+    const nextReviewWorkflow: ReviewWorkflow = {
+      ...reviewWorkflow,
+      ...next,
+    };
+    const nextMeta = getCurrentWorkOrderMeta({
+      reviewWorkflow: nextReviewWorkflow,
+    });
+    const nextDescription = buildWorkOrderDescription(nextMeta);
+
+    setReviewSaving(true);
+    setSaveError("");
+
+    try {
+      const res = await supabase
+        .from("work_orders")
+        .update({
+          description: nextDescription,
+        })
+        .eq("id", wo.id)
+        .eq("org_id", wo.org_id);
+
+      if (res.error) throw new Error(res.error.message);
+
+      setWoMeta(nextMeta);
+      setWo((prev) => (prev ? { ...prev, description: nextDescription } : prev));
+      return nextReviewWorkflow;
+    } catch (error: any) {
+      const message = error?.message ?? "Failed to update review workflow.";
+      setSaveError(message);
+      Alert.alert("Review update failed", message);
+      return null;
+    } finally {
+      setReviewSaving(false);
+    }
+  }
+
+  async function submitForReview() {
     if (!assignedToMe && !canManageReview) {
       Alert.alert("Access denied", "Only the assigned technician can submit this work order for review.");
       return;
     }
 
     const now = new Date().toISOString();
-    setReviewWorkflow({
+    const previousStatus = reviewWorkflow.status;
+    const nextWorkflow = await persistReviewWorkflow({
       status: "submitted_for_review",
       submittedAt: now,
       submittedBy: actorName,
@@ -2310,7 +2399,7 @@ export default function WorkOrderDetail() {
       completedBy: undefined,
     });
 
-    if (wo) {
+    if (wo && nextWorkflow) {
       const workOrderLabel = workOrderActivityLabel(wo);
       void logActivity(supabase, {
         org_id: wo.org_id,
@@ -2324,21 +2413,22 @@ export default function WorkOrderDetail() {
         details: {
           work_order_id: wo.id,
           work_order_number: workOrderLabel,
-          old_value: reviewStatusLabel(reviewWorkflow.status),
+          old_value: reviewStatusLabel(previousStatus),
           new_value: "Submitted for Review",
         },
       });
     }
   }
 
-  function startPricingReview() {
+  async function startPricingReview() {
     if (!canManageReview) {
       Alert.alert("Access denied", "Only managers can start pricing review.");
       return;
     }
 
     const now = new Date().toISOString();
-    setReviewWorkflow({
+    const previousStatus = reviewWorkflow.status;
+    const nextWorkflow = await persistReviewWorkflow({
       status: "in_review",
       reviewStartedAt: now,
       reviewStartedBy: actorName,
@@ -2346,7 +2436,7 @@ export default function WorkOrderDetail() {
       completedBy: undefined,
     });
 
-    if (wo) {
+    if (wo && nextWorkflow) {
       const workOrderLabel = workOrderActivityLabel(wo);
       void logActivity(supabase, {
         org_id: wo.org_id,
@@ -2360,27 +2450,28 @@ export default function WorkOrderDetail() {
         details: {
           work_order_id: wo.id,
           work_order_number: workOrderLabel,
-          old_value: reviewStatusLabel(reviewWorkflow.status),
+          old_value: reviewStatusLabel(previousStatus),
           new_value: "In Review",
         },
       });
     }
   }
 
-  function markPricingComplete() {
+  async function markPricingComplete() {
     if (!canManageReview) {
       Alert.alert("Access denied", "Only managers can complete pricing.");
       return;
     }
 
     const now = new Date().toISOString();
-    setReviewWorkflow({
+    const previousStatus = reviewWorkflow.status;
+    const nextWorkflow = await persistReviewWorkflow({
       status: "priced",
       completedAt: now,
       completedBy: actorName,
     });
 
-    if (wo) {
+    if (wo && nextWorkflow) {
       const workOrderLabel = workOrderActivityLabel(wo);
       void logActivity(supabase, {
         org_id: wo.org_id,
@@ -2394,20 +2485,21 @@ export default function WorkOrderDetail() {
         details: {
           work_order_id: wo.id,
           work_order_number: workOrderLabel,
-          old_value: reviewStatusLabel(reviewWorkflow.status),
+          old_value: reviewStatusLabel(previousStatus),
           new_value: "Priced",
         },
       });
     }
   }
 
-  function returnToDraft() {
+  async function returnToDraft() {
     if (!canManageReview) {
       Alert.alert("Access denied", "Only managers can return this work order to draft.");
       return;
     }
 
-    setReviewWorkflow({
+    const previousStatus = reviewWorkflow.status;
+    const nextWorkflow = await persistReviewWorkflow({
       status: "draft",
       submittedAt: undefined,
       submittedBy: undefined,
@@ -2417,7 +2509,7 @@ export default function WorkOrderDetail() {
       completedBy: undefined,
     });
 
-    if (wo) {
+    if (wo && nextWorkflow) {
       const workOrderLabel = workOrderActivityLabel(wo);
       void logActivity(supabase, {
         org_id: wo.org_id,
@@ -2431,7 +2523,7 @@ export default function WorkOrderDetail() {
         details: {
           work_order_id: wo.id,
           work_order_number: workOrderLabel,
-          old_value: reviewStatusLabel(reviewWorkflow.status),
+          old_value: reviewStatusLabel(previousStatus),
           new_value: "Draft",
         },
       });
@@ -2527,6 +2619,9 @@ export default function WorkOrderDetail() {
       if (currentDb.error) throw new Error(currentDb.error.message);
 
       const dbIds = (currentDb.data ?? []).map((x: any) => x.id as string);
+      const dbItemById = new Map(
+        (currentDb.data ?? []).map((item: any) => [item.id as string, item as LineItemSnapshot])
+      );
       const dbItemKeys = new Map(
         (currentDb.data ?? []).map((item: any) => [item.id as string, lineItemSnapshotKey(item)])
       );
@@ -2575,6 +2670,42 @@ export default function WorkOrderDetail() {
         const hasDetails = hasLineItemDetails(row) || (row.id ? dbMeaningfulItemIds.has(row.id) : false);
         return hasDetails && !!existingKey && existingKey !== lineItemSnapshotKey(row);
       }).length;
+      const changedRows = updatePayload
+        .map((row) => {
+          const before = row.id ? dbItemById.get(row.id) : null;
+          if (!before) return null;
+          const hasDetails = hasLineItemDetails(row) || dbMeaningfulItemIds.has(row.id as string);
+          const fields = describeLineItemFieldChanges(before, row, customHeaders);
+          if (!hasDetails || !Object.keys(fields).length) return null;
+          return {
+            type: "changed",
+            inventory_number: Number(row.sort_order ?? 0) + 1,
+            row_label: lineItemSnapshotLabel(row),
+            row_type: parseRowMeta(row.description).rowType ?? "measured",
+            fields,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+      const removedRows = meaningfulDeletedRows
+        .map((dbId) => {
+          const before = dbItemById.get(dbId);
+          if (!before) return null;
+          return {
+            type: "removed",
+            inventory_number: Number(before.sort_order ?? 0) + 1,
+            row_label: lineItemSnapshotLabel(before),
+            row_type: parseRowMeta(before.description).rowType ?? "measured",
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+      const addedRows = meaningfulAddedRows.slice(0, 8).map((row) => ({
+        type: "added",
+        inventory_number: row.inventory_number,
+        row_label: gridRowActivityLabel(row),
+        row_type: row.row_type,
+      }));
 
       if (toDelete.length) {
         const deleteRes = await supabase.from("work_order_items").delete().in("id", toDelete);
@@ -2640,6 +2771,10 @@ export default function WorkOrderDetail() {
         const addedTypeCounts = countGridRowsByType(meaningfulAddedRows);
 
         if (lineItemChanges.length) {
+          const lineItemChangeDetails = [...addedRows, ...changedRows, ...removedRows];
+          const firstChanged = changedRows[0] as { row_label?: string; fields?: Record<string, { from: string; to: string }> } | undefined;
+          const firstChangedField = firstChanged?.fields ? Object.keys(firstChanged.fields)[0] : "";
+          const firstChangedValues = firstChangedField && firstChanged?.fields ? firstChanged.fields[firstChangedField] : null;
           const action =
             meaningfulAddedRows.length && !changedRowCount && !meaningfulDeletedRows.length
               ? "line_items_bulk_added"
@@ -2667,12 +2802,23 @@ export default function WorkOrderDetail() {
             details: {
               work_order_id: wo.id,
               work_order_number: workOrderLabel,
+              work_order_title: wo.title ?? "",
               added_count: meaningfulAddedRows.length,
               updated_count: changedRowCount,
               removed_count: meaningfulDeletedRows.length,
               measured_count: addedTypeCounts.measured,
               labor_count: addedTypeCounts.labor,
               material_count: addedTypeCounts.material,
+              row_label: firstChanged?.row_label ?? "",
+              field_changed: firstChangedField,
+              old_value: firstChangedValues?.from ?? "",
+              new_value: firstChangedValues?.to ?? "",
+              line_item_changes: lineItemChangeDetails,
+              summary: {
+                added: meaningfulAddedRows.length,
+                changed: changedRowCount,
+                removed: meaningfulDeletedRows.length,
+              },
             },
           });
         }
@@ -3026,7 +3172,9 @@ export default function WorkOrderDetail() {
 
     const visibleColumns = [
       { key: "inventory_number", label: "INV #", width: "64px", align: "center" as const },
-      { key: "row_type", label: "TYPE", width: "100px", align: "left" as const },
+      ...(gridVisibility.showType
+        ? [{ key: "row_type", label: "TYPE", width: "100px", align: "left" as const }]
+        : []),
       ...(gridVisibility.showQty
         ? [{ key: "qty", label: "QTY", width: "52px", align: "center" as const }]
         : []),
@@ -3172,7 +3320,7 @@ export default function WorkOrderDetail() {
       "Title",
       "Client",
       "Inventory #",
-      "Type",
+      ...(gridVisibility.showType ? ["Type"] : []),
       ...(gridVisibility.showQty ? ["Qty"] : []),
       ...(gridVisibility.showMeasurement ? ["Measurement"] : []),
       "Item / SKU",
@@ -3189,7 +3337,7 @@ export default function WorkOrderDetail() {
         wo?.title ?? "",
         wo?.client_name ?? "",
         row.inventory_number,
-        rowTypeLabel(row.row_type, pricingLineOptions),
+        ...(gridVisibility.showType ? [rowTypeLabel(row.row_type, pricingLineOptions)] : []),
         ...(gridVisibility.showQty ? [row.row_type === "measured" ? row.qty || "1" : ""] : []),
         ...(gridVisibility.showMeasurement ? [row.row_type === "measured" ? formatMeasurement(row) : ""] : []),
         row.color,
@@ -3688,6 +3836,14 @@ export default function WorkOrderDetail() {
           <View style={styles.headerVisibilityPanel}>
             <Text style={styles.headerVisibilityTitle}>Header visibility</Text>
             <View style={styles.headerVisibilityChips}>
+              <Pressable
+                onPress={() => setGridVisibility("showType", !gridVisibility.showType)}
+                style={[styles.headerVisibilityChip, gridVisibility.showType ? styles.headerVisibilityChipActive : null]}
+              >
+                <Text style={[styles.headerVisibilityChipText, gridVisibility.showType ? styles.headerVisibilityChipTextActive : null]}>
+                  Type
+                </Text>
+              </Pressable>
               {customHeaders.map((header) => (
                 <Pressable
                   key={header.id}
@@ -3711,10 +3867,12 @@ export default function WorkOrderDetail() {
                   <Text style={styles.thText}>INV #</Text>
                   {headerSortBadge("inventory_number")}
                 </Pressable>
-                <Pressable onPress={() => toggleSort("row_type")} style={[styles.thCell, { width: COLS.type }]}>
-                  <Text style={styles.thText}>TYPE</Text>
-                  {headerSortBadge("row_type")}
-                </Pressable>
+                {gridVisibility.showType ? (
+                  <Pressable onPress={() => toggleSort("row_type")} style={[styles.thCell, { width: COLS.type }]}>
+                    <Text style={styles.thText}>TYPE</Text>
+                    {headerSortBadge("row_type")}
+                  </Pressable>
+                ) : null}
                 <Pressable onPress={() => toggleSort("qty")} style={[styles.thCell, { width: COLS.qty, justifyContent: "center" }]}>
                   <Text style={styles.thText}>QTY</Text>
                   {headerSortBadge("qty")}
@@ -3745,6 +3903,7 @@ export default function WorkOrderDetail() {
                   isStriped={idx % 2 === 0}
                   pricingLineOptions={pricingLineOptions}
                   visibleCustomHeaders={visibleGridHeaders}
+                  showType={gridVisibility.showType}
                   showQty
                   effectiveShowAmount={effectiveShowAmount}
                   canEditFieldRows={canEditFieldRows}
@@ -5315,6 +5474,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: theme.colors.ink,
     fontSize: 11,
+    textAlign: "center",
   },
 
   dropdownBackdrop: {
@@ -5523,6 +5683,7 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontWeight: "800",
     fontSize: 12.5,
+    textAlign: "center",
   },
 
   customSelectPlaceholder: {
@@ -5548,6 +5709,7 @@ const styles = StyleSheet.create({
     height: 34,
     paddingHorizontal: 8,
     justifyContent: "center",
+    alignItems: "center",
     borderTopLeftRadius: 8,
     borderBottomLeftRadius: 8,
     borderWidth: 1,
