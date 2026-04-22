@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Link, useRouter } from "expo-router";
-import { Image, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Screen from "../../src/components/Screen";
 import AlertBox from "../../src/components/AlertBox";
 import FormField from "../../src/components/FormField";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import { supabase } from "../../src/lib/supabase";
-import { setupNewAccount } from "../../src/lib/auth";
 import { theme } from "../../src/theme/theme";
 import { ui } from "../../src/theme/ui";
 
@@ -15,6 +14,11 @@ function formatPhoneInput(value: string) {
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function getConfirmationRedirectUrl() {
+  if (Platform.OS !== "web" || typeof window === "undefined") return undefined;
+  return `${window.location.origin}/sign-in?confirmed=success`;
 }
 
 export default function SignUp() {
@@ -29,6 +33,8 @@ export default function SignUp() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState("");
 
   function clearErr() {
     if (err) setErr(null);
@@ -70,45 +76,61 @@ export default function SignUp() {
     try {
       setLoading(true);
 
-      // Step 1 - create auth user
-      const signUpRes = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            full_name: cleanFullName,
-            company_name: cleanCompanyName,
-            phone: phoneDigits || null,
-            job_title: cleanJobTitle,
-          },
+      const { data, error } = await supabase.functions.invoke("create-account", {
+        body: {
+          email: cleanEmail,
+          password,
+          full_name: cleanFullName,
+          company_name: cleanCompanyName,
+          phone: phoneDigits || null,
+          job_title: cleanJobTitle,
         },
       });
 
-      if (signUpRes.error) throw new Error(signUpRes.error.message);
-      if (!signUpRes.data.user?.id) throw new Error("Account created but no user ID returned.");
-
-      // Email confirmation required - no session yet
-      if (!signUpRes.data.session) {
-        setMsg("Account created! Check your email to confirm, then sign in.");
-        return;
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(String(data.error));
+      if (!data?.user_id || !data?.org_id) {
+        throw new Error("Account created, but the owner workspace was not returned.");
       }
 
-      // Step 2 - create org + profile in one shot, go straight to dashboard
-      const setup = await setupNewAccount({
-        orgName: cleanCompanyName,
-        fullName: cleanFullName,
-        email: cleanEmail,
-        phone: phoneDigits || undefined,
-        jobTitle: cleanJobTitle,
-      });
-
-      if (!setup.ok) throw new Error(setup.error);
-
-      router.replace("/(app)/dashboard");
+      // Session present (e.g. email confirmation disabled) — go straight to dashboard
+      router.replace(`/(auth)/sign-in?signup=created&email=${encodeURIComponent(cleanEmail)}` as any);
     } catch (error: any) {
       setErr(error?.message ?? "Failed to create account.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const cleanEmail = (pendingEmail || email).trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setErr("Enter the email address you used to create the account.");
+      return;
+    }
+
+    setErr(null);
+    setMsg(null);
+    setResending(true);
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: cleanEmail,
+        options: {
+          emailRedirectTo: getConfirmationRedirectUrl(),
+        },
+      });
+
+      if (error) throw new Error(error.message);
+
+      setPendingEmail(cleanEmail);
+      setMsg(`Confirmation email sent to ${cleanEmail}. Check spam or junk if it does not show up.`);
+    } catch (error: any) {
+      setErr(error?.message ?? "Could not resend confirmation email.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -234,6 +256,21 @@ export default function SignUp() {
             </View>
           ) : null}
 
+          {pendingEmail ? (
+            <Pressable
+              onPress={() => void handleResendConfirmation()}
+              disabled={resending || loading}
+              style={({ pressed }) => [
+                styles.resendButton,
+                pressed && !resending && !loading ? styles.resendButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.resendButtonText}>
+                {resending ? "Sending confirmation..." : "Resend confirmation email"}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <View style={styles.btnWrap}>
             <PrimaryButton
               title="Create Account"
@@ -332,6 +369,25 @@ const styles = StyleSheet.create({
   },
   alertWrap: {
     marginBottom: 12,
+  },
+  resendButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    paddingHorizontal: 14,
+  },
+  resendButtonPressed: {
+    backgroundColor: theme.colors.primaryLight,
+  },
+  resendButtonText: {
+    color: theme.colors.primaryHover,
+    fontSize: 13,
+    fontWeight: "900",
   },
   btnWrap: {
     marginTop: 8,

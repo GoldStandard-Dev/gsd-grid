@@ -24,6 +24,8 @@ type ActivityRow = {
   entity_type: string | null;
   entity_id: string | null;
   details: Record<string, unknown> | null;
+  is_read: boolean;
+  cleared: boolean;
 };
 
 type ActivityFilter = "All" | "Work Orders" | "Invoices" | "Pricing" | "Team";
@@ -81,23 +83,55 @@ function normalizeActivityRow(row: any): ActivityRow {
     entity_type: row.entity_type ?? null,
     entity_id: row.entity_id ?? null,
     details: normalizeDetails(row.details),
+    is_read: Boolean(row.is_read ?? false),
+    cleared: Boolean(row.cleared ?? false),
   };
 }
 
-async function fetchActivityRows(orgId: string): Promise<ActivityRow[]> {
+async function fetchActivityRows(orgId: string, userId: string): Promise<ActivityRow[]> {
   const { data, error } = await supabase
     .from("activity_log")
     .select("id, actor_user_id, actor_name, action, created_at, entity_type, entity_id, details")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(100);
 
   if (error) {
     console.warn("[dashboard activity] query failed", error.message);
     return [];
   }
 
-  return (data ?? []).map(normalizeActivityRow);
+  const rows = (data ?? []).map(normalizeActivityRow);
+  const activityIds = rows.map((row) => row.id).filter(Boolean);
+  if (activityIds.length === 0) return rows;
+
+  const { data: stateData, error: stateError } = await supabase
+    .from("activity_user_state")
+    .select("activity_id, is_read, cleared")
+    .eq("user_id", userId)
+    .in("activity_id", activityIds);
+
+  if (stateError) {
+    console.warn("[dashboard activity state] query failed", stateError.message);
+    return rows;
+  }
+
+  const stateByActivityId = new Map(
+    (stateData ?? []).map((state: any) => [
+      String(state.activity_id ?? ""),
+      {
+        is_read: Boolean(state.is_read),
+        cleared: Boolean(state.cleared),
+      },
+    ]),
+  );
+
+  return rows
+    .map((row) => {
+      const state = stateByActivityId.get(row.id);
+      return state ? { ...row, ...state } : row;
+    })
+    .filter((row) => !row.cleared);
 }
 
 function timeAgo(iso: string): string {
@@ -163,6 +197,15 @@ function detailCurrency(details: Record<string, unknown> | null | undefined, key
   return money(detailNumber(details, key));
 }
 
+function getWorkOrderRef(details: Record<string, unknown> | null | undefined) {
+  return detailString(details, "work_order_number");
+}
+
+function appendWorkOrderRef(value: string, workOrderRef: string) {
+  if (!workOrderRef) return value;
+  return value.toLowerCase().includes(workOrderRef.toLowerCase()) ? value : `${value} ${workOrderRef}`;
+}
+
 function parseLineItemChangeContext(action: string) {
   const detailText = action.split(" - ")[1]?.trim();
   if (!detailText?.includes("line item")) return null;
@@ -181,6 +224,7 @@ function getActivityContext(item: ActivityRow) {
   const action = item.action.toLowerCase();
   const details = item.details ?? {};
   const workOrderNumber = detailString(details, "work_order_number");
+  const workOrderTitle = detailString(details, "work_order_title") || detailString(details, "title");
   const invoiceNumber = detailString(details, "invoice_number");
 
   if (action === "line_items_bulk_added") {
@@ -198,14 +242,18 @@ function getActivityContext(item: ActivityRow) {
     const rowLabel = detailString(details, "row_label");
     const oldValue = detailString(details, "old_value");
     const newValue = detailString(details, "new_value");
+    const updatedCount = detailNumber(details, "updated_count");
 
     if (field && oldValue && newValue) {
-      return `${titleCase(field)} changed from ${oldValue} to ${newValue}.`;
+      const target = rowLabel ? `Line item "${rowLabel}"` : "Line item";
+      return `${target} ${titleCase(field).toLowerCase()} changed from ${oldValue} to ${newValue}.`;
     }
 
     if (rowLabel) {
-      return `${rowLabel} was updated.`;
+      return `Line item "${rowLabel}" was edited.`;
     }
+
+    if (updatedCount) return `${updatedCount} line item${updatedCount === 1 ? "" : "s"} changed on ${workOrderNumber || "this work order"}.`;
   }
 
   if (action === "line_items_updated") {
@@ -214,6 +262,8 @@ function getActivityContext(item: ActivityRow) {
       detailNumber(details, "updated_count") ? `${detailNumber(details, "updated_count")} updated` : "",
       detailNumber(details, "removed_count") ? `${detailNumber(details, "removed_count")} removed` : "",
     ].filter(Boolean);
+    const changeSummary = buildChangeLines(details).lines[0];
+    if (changeSummary) return changeSummary;
 
     return parts.join(" - ") || `Line items changed on ${workOrderNumber || "this work order"}.`;
   }
@@ -252,6 +302,7 @@ function getActivityContext(item: ActivityRow) {
     if (woTitle) parts.push(woTitle);
     if (client) parts.push(`Client: ${client}`);
     if (template) parts.push(`Template: ${template}`);
+    return parts.length ? parts.join(" - ") : "A new work order entered the active pipeline.";
     return parts.length ? parts.join(" · ") : "A new work order entered the active pipeline.";
   }
   if (action.includes("submitted") && action.includes("review")) {
@@ -270,6 +321,10 @@ function getActivityContext(item: ActivityRow) {
     return "Billing activity was recorded for this workspace.";
   }
 
+  if (workOrderNumber) {
+    return workOrderTitle ? `${workOrderTitle} - work order activity recorded.` : `Work order activity recorded for ${workOrderNumber}.`;
+  }
+
   return `${getActivityCategory(item)} activity recorded.`;
 }
 
@@ -279,6 +334,7 @@ function getActivityRoute(item: ActivityRow) {
 
   switch (item.entity_type) {
     case "work_order":
+    case "work_order_item":
       return `/workorders/${item.entity_id}`;
     case "invoice":
       return `/invoices/${item.entity_id}`;
@@ -323,17 +379,21 @@ function buildChangeLines(details: Record<string, unknown> | null): { lines: str
   for (const change of changes.slice(0, 2)) {
     const type = String(change.type ?? "");
     const num = change.inventory_number ? `#${change.inventory_number}` : "";
+    const rowLabel = typeof change.row_label === "string" ? change.row_label.trim() : "";
+    const label = rowLabel || (num ? `line item ${num}` : "line item");
     if (type === "added") {
       const rowType = String(change.row_type ?? "item");
-      lines.push(`Line item ${num} added (${rowType})`);
+      lines.push(`${titleCase(label)} added (${rowType})`);
     } else if (type === "removed") {
-      lines.push(`Line item ${num} removed`);
+      lines.push(`${titleCase(label)} removed`);
     } else if (type === "changed") {
       const fields = change.fields as Record<string, { from: string; to: string }> | undefined;
       if (fields) {
         const firstField = Object.keys(fields)[0];
         if (firstField) {
           const f = fields[firstField];
+          lines.push(`${titleCase(label)} ${firstField} changed from ${f.from} -> ${f.to}`);
+          continue;
           lines.push(`Line item ${num} ${firstField}: ${f.from} → ${f.to}`);
         }
       }
@@ -346,6 +406,7 @@ function buildChangeLines(details: Record<string, unknown> | null): { lines: str
 function getActivityHeadline(item: ActivityRow): string {
   const action = item.action.toLowerCase();
   const details = item.details ?? {};
+  const workOrderRef = getWorkOrderRef(details);
 
   if (action === "line_items_bulk_added") {
     const total =
@@ -354,13 +415,21 @@ function getActivityHeadline(item: ActivityRow): string {
         detailNumber(details, "labor_count") +
         detailNumber(details, "material_count");
     const label = total > 0 ? `${total} line item${total !== 1 ? "s" : ""}` : "line items";
-    return `Added ${label}`;
+    return workOrderRef ? `added ${label} to ${workOrderRef}` : `added ${label}`;
   }
 
-  if (action === "line_item_updated") return "Updated a line item";
-  if (action === "line_items_updated") return "Updated line items";
-  if (action === "stage_changed") return "Stage changed";
-  if (action === "pricing_imported") return "Pricing imported";
+  if (action === "line_item_updated") return workOrderRef ? `updated ${workOrderRef}` : "updated a line item";
+  if (action === "line_items_updated") return workOrderRef ? `updated ${workOrderRef}` : "updated line items";
+  if (action === "stage_changed") {
+    const newValue = detailString(details, "new_value");
+    if (workOrderRef && newValue) return `moved ${workOrderRef} to ${newValue}`;
+    return workOrderRef ? `updated ${workOrderRef}` : "stage changed";
+  }
+  if (action === "template_changed") return workOrderRef ? `changed template on ${workOrderRef}` : "changed template";
+  if (action === "pricing_imported") return workOrderRef ? `imported pricing into ${workOrderRef}` : "pricing imported";
+  if (action === "deleted" && item.entity_type === "work_order") return workOrderRef ? `deleted ${workOrderRef}` : "deleted work order";
+  if (action.includes("created work order")) return workOrderRef ? `created ${workOrderRef}` : sentenceCase(item.action);
+  if (getActivityCategory(item) === "Work Order" && workOrderRef) return appendWorkOrderRef(sentenceCase(item.action), workOrderRef);
   if (action === "created" && item.entity_type === "invoice") return "Invoice created";
   if (action === "deleted" && item.entity_type === "invoice") return "Invoice deleted";
 
@@ -457,7 +526,6 @@ export default function Dashboard() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("All");
   const [showAllActivity, setShowAllActivity] = useState(false);
-  const [clearedIds, setClearedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -476,7 +544,7 @@ export default function Dashboard() {
         if (!orgId) return;
 
         const [activityRows, woRes, invoiceRes] = await Promise.all([
-          fetchActivityRows(orgId),
+          fetchActivityRows(orgId, uid),
           supabase
             .from("work_orders")
             .select("status")
@@ -519,6 +587,65 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [refreshKey]);
+
+  async function saveActivityState(
+    rows: ActivityRow[],
+    updates: { is_read?: boolean; cleared?: boolean }
+  ) {
+    if (!currentUserId || rows.length === 0) return false;
+
+    const payload = rows.map((row) => ({
+      user_id: currentUserId,
+      activity_id: row.id,
+      is_read: updates.is_read ?? row.is_read,
+      cleared: updates.cleared ?? row.cleared,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from("activity_user_state")
+      .upsert(payload, { onConflict: "user_id,activity_id" });
+
+    if (error) {
+      console.warn("[dashboard activity state] save failed", error.message);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function markActivityRead(item: ActivityRow) {
+    if (item.is_read) return;
+    const saved = await saveActivityState([item], { is_read: true });
+    if (!saved) return;
+    setActivity((rows) => rows.map((row) => (row.id === item.id ? { ...row, is_read: true } : row)));
+  }
+
+  async function markAllActivityRead(rows: ActivityRow[]) {
+    const unreadRows = rows.filter((item) => !item.is_read);
+    if (unreadRows.length === 0) return;
+    const saved = await saveActivityState(unreadRows, { is_read: true });
+    if (!saved) return;
+
+    const unreadIds = new Set(unreadRows.map((item) => item.id));
+    setActivity((items) =>
+      items.map((item) => (unreadIds.has(item.id) ? { ...item, is_read: true } : item))
+    );
+  }
+
+  async function clearActivityRows(rows: ActivityRow[]) {
+    if (rows.length === 0) return;
+    const saved = await saveActivityState(rows, { is_read: true, cleared: true });
+    if (!saved) return;
+
+    const clearedIds = new Set(rows.map((item) => item.id));
+    setActivity((items) =>
+      items.map((item) =>
+        clearedIds.has(item.id) ? { ...item, is_read: true, cleared: true } : item
+      )
+    );
+    setShowAllActivity(false);
+  }
 
   const summary = [
     {
@@ -568,8 +695,13 @@ export default function Dashboard() {
   }, [activity, activityFilter]);
 
   const unclearedActivity = useMemo(
-    () => filteredActivity.filter((item) => !clearedIds.has(item.id)),
-    [filteredActivity, clearedIds],
+    () => filteredActivity.filter((item) => !item.cleared),
+    [filteredActivity],
+  );
+
+  const unreadActivityCount = useMemo(
+    () => unclearedActivity.filter((item) => !item.is_read).length,
+    [unclearedActivity],
   );
 
   const visibleActivity = useMemo(
@@ -661,16 +793,22 @@ export default function Dashboard() {
 
                     <View style={styles.feedFilterSpacer} />
 
+                    {unreadActivityCount > 0 && (
+                      <Pressable
+                        onPress={() => void markAllActivityRead(unclearedActivity)}
+                        style={({ pressed }) => [
+                          styles.feedFilterPill,
+                          styles.feedFilterPillRead,
+                          pressed ? styles.feedRowPressed : null,
+                        ]}
+                      >
+                        <Text style={styles.feedFilterTextRead}>Mark all as read</Text>
+                      </Pressable>
+                    )}
+
                     {unclearedActivity.length > 0 && (
                       <Pressable
-                        onPress={() => {
-                          setClearedIds((prev) => {
-                            const next = new Set(prev);
-                            unclearedActivity.forEach((item) => next.add(item.id));
-                            return next;
-                          });
-                          setShowAllActivity(false);
-                        }}
+                        onPress={() => void clearActivityRows(unclearedActivity)}
                         style={({ pressed }) => [
                           styles.feedFilterPill,
                           styles.feedFilterPillClear,
@@ -692,11 +830,12 @@ export default function Dashboard() {
                         key={item.id}
                         style={[
                           styles.feedRow,
+                          item.is_read ? styles.feedRowRead : null,
                           index === visibleActivity.length - 1 ? styles.feedRowLast : null,
                         ]}
                       >
                         <View style={styles.feedDotWrap}>
-                          <View style={styles.feedDot} />
+                          {!item.is_read ? <View style={styles.feedDot} /> : <View style={styles.feedDotRead} />}
                         </View>
 
                         <View style={styles.feedBody}>
@@ -716,13 +855,19 @@ export default function Dashboard() {
                                 pressed && display.actorRoute ? styles.feedActorLinkPressed : null,
                               ]}
                             >
-                              <Text style={styles.feedActor}>{display.actor}</Text>
+                              <Text style={[styles.feedActor, item.is_read ? styles.feedActorRead : null]}>
+                                {display.actor}
+                              </Text>
                             </Pressable>
 
-                            <Text style={styles.feedText}>{display.headline}</Text>
+                            <Text style={[styles.feedText, item.is_read ? styles.feedTextRead : null]}>
+                              {display.headline}
+                            </Text>
                           </View>
 
-                          <Text style={styles.feedContext}>{display.context}</Text>
+                          <Text style={[styles.feedContext, item.is_read ? styles.feedContextRead : null]}>
+                            {display.context}
+                          </Text>
 
                           {/* Summary chips from details.summary */}
                           {display.summaryChips.length > 0 && (
@@ -757,20 +902,37 @@ export default function Dashboard() {
                           )}
                         </View>
 
-                        <Pressable
-                          disabled={!display.route}
-                          onPress={() => {
-                            if (display.route) router.push(display.route as any);
-                          }}
-                          style={({ pressed }) => [
-                            styles.feedOpenAction,
-                            pressed && display.route ? styles.feedRowPressed : null,
-                          ]}
-                        >
-                          <Text style={[styles.feedOpenText, !display.route ? styles.feedClosedText : null]}>
-                            {display.statusLabel}
-                          </Text>
-                        </Pressable>
+                        <View style={styles.feedActions}>
+                          <Pressable
+                            disabled={!display.route}
+                            onPress={() => {
+                              if (display.route) router.push(display.route as any);
+                            }}
+                            style={({ pressed }) => [
+                              styles.feedOpenAction,
+                              pressed && display.route ? styles.feedRowPressed : null,
+                            ]}
+                          >
+                            <Text style={[styles.feedOpenText, !display.route ? styles.feedClosedText : null]}>
+                              {display.statusLabel}
+                            </Text>
+                          </Pressable>
+
+                          <Text style={styles.feedActionDivider}>•</Text>
+
+                          <Pressable
+                            disabled={item.is_read}
+                            onPress={() => void markActivityRead(item)}
+                            style={({ pressed }) => [
+                              styles.feedReadAction,
+                              pressed && !item.is_read ? styles.feedRowPressed : null,
+                            ]}
+                          >
+                            <Text style={[styles.feedReadText, item.is_read ? styles.feedReadTextDisabled : null]}>
+                              {item.is_read ? "Read" : "Mark as read"}
+                            </Text>
+                          </Pressable>
+                        </View>
                       </View>
                     ))
                   )}
@@ -785,16 +947,6 @@ export default function Dashboard() {
                           {showAllActivity
                             ? "Show less"
                             : `Show all ${unclearedActivity.length}`}
-                        </Text>
-                      </Pressable>
-                    )}
-                    {clearedIds.size > 0 && (
-                      <Pressable
-                        style={styles.feedFooterAction}
-                        onPress={() => setClearedIds(new Set())}
-                      >
-                        <Text style={styles.feedFooterText}>
-                          Restore {clearedIds.size} cleared
                         </Text>
                       </Pressable>
                     )}
@@ -935,6 +1087,10 @@ const styles = StyleSheet.create({
     borderColor: "#BFDBFE",
     backgroundColor: "#EFF6FF",
   },
+  feedFilterPillRead: {
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+  },
   feedFilterText: {
     color: theme.colors.muted,
     fontSize: 12,
@@ -942,6 +1098,11 @@ const styles = StyleSheet.create({
   },
   feedFilterTextActive: {
     color: theme.colors.goldDark,
+  },
+  feedFilterTextRead: {
+    color: theme.colors.goldDark,
+    fontSize: 12,
+    fontWeight: "800",
   },
   feedEmptyFilter: {
     minHeight: 72,
@@ -959,6 +1120,9 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
     borderRadius: 12,
   },
+  feedRowRead: {
+    opacity: 0.68,
+  },
   feedRowLast: {
     borderBottomWidth: 0,
   },
@@ -974,7 +1138,15 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: theme.colors.gold,
+    backgroundColor: theme.colors.primary,
+    marginTop: 5,
+    flexShrink: 0,
+  },
+  feedDotRead: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "transparent",
     marginTop: 5,
     flexShrink: 0,
   },
@@ -1006,9 +1178,13 @@ const styles = StyleSheet.create({
   feedText: {
     flexShrink: 1,
     fontSize: 13.5,
-    fontWeight: "500",
+    fontWeight: "800",
     color: theme.colors.ink,
     lineHeight: 19,
+  },
+  feedTextRead: {
+    color: theme.colors.muted,
+    fontWeight: "600",
   },
   feedSentenceRow: {
     flexDirection: "row",
@@ -1028,6 +1204,9 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
   },
+  feedActorRead: {
+    color: theme.colors.muted,
+  },
   feedMeta: {
     fontSize: 12,
     color: theme.colors.muted,
@@ -1039,6 +1218,17 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 18,
   },
+  feedContextRead: {
+    color: theme.colors.mutedSoft,
+  },
+  feedActions: {
+    minWidth: 132,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    marginTop: 18,
+  },
   feedOpenText: {
     color: theme.colors.goldDark,
     fontSize: 12,
@@ -1049,7 +1239,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 4,
     borderRadius: 6,
-    marginTop: 18,
+  },
+  feedActionDivider: {
+    color: theme.colors.borderStrong,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  feedReadAction: {
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderRadius: 6,
+  },
+  feedReadText: {
+    color: theme.colors.goldDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  feedReadTextDisabled: {
+    color: theme.colors.mutedSoft,
   },
   feedClosedText: {
     color: theme.colors.muted,

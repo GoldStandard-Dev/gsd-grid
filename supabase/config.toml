@@ -1,2 +1,5 @@
 [functions.send-invite]
 verify_jwt = false
+
+[functions.create-account]
+verify_jwt = false

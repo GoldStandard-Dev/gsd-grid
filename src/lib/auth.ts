@@ -108,33 +108,98 @@ export async function setupNewAccount(params: {
 
   const userId = authData.user.id;
 
-  // 1. Create organization
-  const org = await supabase
-    .from("organizations")
-    .insert({ name: orgName, owner_user_id: userId })
-    .select("id")
-    .single();
+  const repaired = await supabase.functions.invoke("ensure-owner-workspace", {
+    body: {
+      company_name: orgName,
+      full_name: fullName,
+      email,
+      phone: phone || null,
+      job_title: jobTitle || "Owner",
+    },
+  });
 
-  if (org.error || !org.data) {
-    return { ok: false as const, error: org.error?.message || "Failed to create organization." };
+  if (!repaired.error && repaired.data?.org_id) {
+    return { ok: true as const, orgId: String(repaired.data.org_id) };
   }
 
-  const orgId = org.data.id;
+  const existingOrg = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("owner_user_id", userId)
+    .limit(1);
 
-  // 2. Create owner membership
-  const member = await supabase.from("org_members").insert({
-    org_id: orgId,
-    user_id: userId,
+  if (existingOrg.error) {
+    return {
+      ok: false as const,
+      error:
+        repaired.error?.message ||
+        (repaired.data?.error ? String(repaired.data.error) : "") ||
+        existingOrg.error.message,
+    };
+  }
+
+  let orgId = existingOrg.data?.[0]?.id as string | undefined;
+
+  if (!orgId) {
+    const org = await supabase
+      .from("organizations")
+      .insert({ name: orgName, owner_user_id: userId })
+      .select("id")
+      .single();
+
+    if (org.error || !org.data) {
+      return { ok: false as const, error: org.error?.message || "Failed to create organization." };
+    }
+
+    orgId = org.data.id;
+  }
+
+  const existingMember = await supabase
+    .from("org_members")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("user_id", userId)
+    .limit(1);
+
+  if (existingMember.error) {
+    return { ok: false as const, error: existingMember.error.message };
+  }
+
+  const memberId = existingMember.data?.[0]?.id as string | undefined;
+  const memberPayload = {
     role: "owner",
     status: "active",
     display_name: fullName || email,
-  });
+    email,
+    phone: phone || null,
+    job_title: jobTitle || "Owner",
+    portal_type: "admin",
+    is_field_user: false,
+    mobile_access_enabled: true,
+    desktop_access_enabled: true,
+  };
 
-  if (member.error) {
-    return { ok: false as const, error: member.error.message };
+  if (memberId) {
+    const member = await supabase
+      .from("org_members")
+      .update(memberPayload)
+      .eq("id", memberId);
+
+    if (member.error) {
+      return { ok: false as const, error: member.error.message };
+    }
+  } else {
+    const member = await supabase.from("org_members").insert({
+      org_id: orgId,
+      user_id: userId,
+      ...memberPayload,
+    });
+
+    if (member.error) {
+      return { ok: false as const, error: member.error.message };
+    }
   }
 
-  // 3. Create profile
   const profile = await supabase.from("profiles").upsert(
     {
       user_id: userId,
@@ -151,7 +216,6 @@ export async function setupNewAccount(params: {
     return { ok: false as const, error: profile.error.message };
   }
 
-  // 4. Log activity
   await supabase.from("activity_log").insert({
     org_id: orgId,
     actor_user_id: userId,

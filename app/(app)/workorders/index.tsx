@@ -358,6 +358,14 @@ export default function WorkOrdersIndex() {
     () => activeItems.filter((item) => item.reviewStatus === "priced").length,
     [activeItems]
   );
+  const savedViewCounts = useMemo<Record<SavedView, number>>(() => ({
+    all: activeItems.length,
+    my_jobs: activeItems.filter((item) => item.assignedUserId === currentUserId).length,
+    needs_review: activeItems.filter((item) => item.reviewStatus === "submitted_for_review" || item.reviewStatus === "in_review").length,
+    priced: activeItems.filter((item) => item.reviewStatus === "priced").length,
+    closed: activeItems.filter((item) => item.status === "Closed").length,
+    archived: items.filter((item) => item.archivedAt).length,
+  }), [activeItems, currentUserId, items]);
 
   const templateFilters = useMemo(() => {
     const source = savedView === "archived" ? items.filter((item) => item.archivedAt) : activeItems;
@@ -494,23 +502,27 @@ export default function WorkOrdersIndex() {
           <SummaryCard label="Total" value={String(totalCount)} meta="Visible records" accent="purple" trend={{ value: `${filtered.length} in current view`, tone: "neutral" }} />
         </SummaryStrip>
 
-        <ContentCard title="Pipeline controls" subtitle="Saved views, search, sort, and filter controls from the richer workspace pattern." meta={loading ? "Loading..." : `${filtered.length} shown`}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-            {SAVED_VIEWS.map((view) => {
-              const active = savedView === view.key;
-              return (
-                <Pressable
-                  key={view.key}
-                  onPress={() => setSavedView(view.key)}
-                  style={({ pressed }) => [styles.filterPill, active ? styles.savedViewActive : null, pressed ? styles.pressed : null]}
-                >
-                  <Text style={[styles.filterPillText, active ? styles.savedViewActiveText : null]}>{view.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+        <ContentCard title="Pipeline controls" subtitle="Saved views, search, and focused filters.">
+          <View style={styles.primaryViewsBlock}>
+            <Text style={styles.filterGroupLabel}>Saved Views</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.primaryViewsRow}>
+              {SAVED_VIEWS.map((view) => {
+                const active = savedView === view.key;
+                const count = savedViewCounts[view.key] ?? 0;
+                return (
+                  <Pressable
+                    key={view.key}
+                    onPress={() => setSavedView(view.key)}
+                    style={({ pressed }) => [styles.primaryViewPill, active ? styles.primaryViewPillActive : null, pressed ? styles.pressed : null]}
+                  >
+                    <Text style={[styles.primaryViewText, active ? styles.primaryViewTextActive : null]}>{view.label} ({count})</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
 
-          <View style={styles.controlsRow}>
+          <View style={styles.searchControlRow}>
             <View style={styles.searchWrap}>
               <Ionicons name="search" size={16} color={theme.colors.muted} />
               <TextInput
@@ -541,65 +553,80 @@ export default function WorkOrdersIndex() {
                 );
               })}
             </View>
+
+            {canCreateOrReview(currentUserRole) ? (
+              <Pressable onPress={() => router.push("/workorders/new")} style={({ pressed }) => [styles.controlCta, pressed ? styles.controlCtaPressed : null]}>
+                <Text style={styles.controlCtaText}>+ New Work Order</Text>
+              </Pressable>
+            ) : null}
           </View>
 
-          <View style={styles.controlsRow}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-              {STATUS_FILTERS.map((value) => {
-                const active = value === status;
-                return (
-                  <Pressable
-                    key={value}
-                    onPress={() => setStatus(value)}
-                    style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
-                  >
-                    <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-          <View style={styles.controlsRow}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-              {templateFilters.map((value) => {
-                const active = value === templateFilter;
-                return (
-                  <Pressable
-                    key={value}
-                    onPress={() => setTemplateFilter(value)}
-                    style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
-                  >
-                    <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+          <View style={styles.filterGroups}>
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterGroupLabel}>Status</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+                {STATUS_FILTERS.map((value) => {
+                  const active = value === status;
+                  return (
+                    <Pressable
+                      key={value}
+                      onPress={() => setStatus(value)}
+                      style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
+                    >
+                      <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-              {([
-                ["updated", "Updated"],
-                ["number", "WO #"],
-                ["priority", "Priority"],
-                ["due", "Due Date"],
-              ] as const).map(([key, label]) => {
-                const active = sortKey === key;
-                return (
-                  <Pressable
-                    key={key}
-                    onPress={() => setSortKey(key)}
-                    style={({ pressed }) => [styles.filterPill, active ? styles.sortPillActive : null, pressed ? styles.pressed : null]}
-                  >
-                    <Text style={[styles.filterPillText, active ? styles.sortPillActiveText : null]}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterGroupLabel}>Template</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+                {templateFilters.map((value) => {
+                  const active = value === templateFilter;
+                  return (
+                    <Pressable
+                      key={value}
+                      onPress={() => setTemplateFilter(value)}
+                      style={({ pressed }) => [styles.filterPill, active ? styles.filterPillActive : null, pressed ? styles.pressed : null]}
+                    >
+                      <Text style={[styles.filterPillText, active ? styles.filterPillTextActive : null]}>{value}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterGroupLabel}>Sort</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+                {([
+                  ["updated", "Updated"],
+                  ["number", "WO #"],
+                  ["priority", "Priority"],
+                  ["due", "Due Date"],
+                ] as const).map(([key, label]) => {
+                  const active = sortKey === key;
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => setSortKey(key)}
+                      style={({ pressed }) => [styles.filterPill, active ? styles.sortPillActive : null, pressed ? styles.pressed : null]}
+                    >
+                      <Text style={[styles.filterPillText, active ? styles.sortPillActiveText : null]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
           </View>
         </ContentCard>
 
         <ContentCard
           title={viewMode === "table" ? "Work order table" : "Work order cards"}
           subtitle="Closer to the reference workspace: denser records plus clearer operational signals."
+          meta={loading ? "Loading..." : `${filtered.length} shown`}
         >
           {loading ? (
             <View style={styles.emptyWrap}>
@@ -820,6 +847,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  primaryViewsBlock: {
+    gap: 8,
+  },
+  primaryViewsRow: {
+    gap: 10,
+    paddingBottom: 2,
+  },
+  primaryViewPill: {
+    minHeight: 42,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    justifyContent: "center",
+  },
+  primaryViewPillActive: {
+    backgroundColor: theme.colors.gold,
+    borderColor: theme.colors.gold,
+  },
+  primaryViewText: {
+    color: theme.colors.ink,
+    fontWeight: "900",
+    fontSize: 13,
+  },
+  primaryViewTextActive: {
+    color: "#FFFFFF",
+  },
+  searchControlRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    alignItems: "center",
+  },
   searchWrap: {
     flex: 1,
     minWidth: 260,
@@ -842,9 +903,26 @@ const styles = StyleSheet.create({
   pillRow: {
     gap: 8,
   },
+  filterGroups: {
+    gap: 12,
+  },
+  filterGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+  },
+  filterGroupLabel: {
+    minWidth: 72,
+    color: theme.colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
   filterPill: {
-    minHeight: 36,
-    paddingHorizontal: 14,
+    minHeight: 34,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -852,8 +930,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterPillActive: {
-    backgroundColor: theme.colors.surface2,
-    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+    borderColor: "#93C5FD",
   },
   filterPillText: {
     color: theme.colors.ink,
@@ -861,21 +939,14 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
   },
   filterPillTextActive: {
-    color: theme.colors.goldDark,
-  },
-  savedViewActive: {
-    backgroundColor: theme.colors.surface2,
-    borderColor: "#BFDBFE",
-  },
-  savedViewActiveText: {
-    color: theme.colors.goldDark,
+    color: theme.colors.primaryHover,
   },
   sortPillActive: {
-    backgroundColor: theme.colors.surface2,
-    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+    borderColor: "#93C5FD",
   },
   sortPillActiveText: {
-    color: theme.colors.goldDark,
+    color: theme.colors.primaryHover,
   },
   viewModeRow: {
     flexDirection: "row",
@@ -894,6 +965,22 @@ const styles = StyleSheet.create({
   viewModeBtnActive: {
     backgroundColor: theme.colors.surface2,
     borderColor: "#BFDBFE",
+  },
+  controlCta: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  controlCtaPressed: {
+    backgroundColor: theme.colors.goldDark,
+  },
+  controlCtaText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
   table: {
     width: "100%",

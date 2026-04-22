@@ -95,15 +95,18 @@ export function SummaryCard({
   meta,
   accent = "purple",
   trend,
+  onPress,
 }: {
   label: string;
   value: string;
   meta?: string;
   accent?: "purple" | "indigo" | "teal" | "violet" | "plum" | "lavender";
   trend?: { value: string; tone?: "positive" | "negative" | "neutral" };
+  onPress?: () => void;
 }) {
   return (
     <Pressable
+      onPress={onPress}
       style={({ pressed }) => [
         styles.summaryCard,
         styles.summaryCardActive,
